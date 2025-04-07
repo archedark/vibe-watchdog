@@ -140,38 +140,35 @@ async function runWatchdog() {
             });
         }
 
-        // Step 7: Robust Snapshot Parsing (Graph Traversal Implementation)
+        // Step 7: Robust Snapshot Parsing (Graph Traversal + Constructor Finding)
         function analyzeSnapshot(snapshotJsonString) {
-            console.log('Analyzing snapshot using graph traversal...');
-            // Initialize counts
+            console.log('Analyzing snapshot using graph traversal + constructor analysis...');
+            // Initialize counts based on node names
             let counts = {
                 geometryCount: 0, materialCount: 0, textureCount: 0,
                 renderTargetCount: 0, meshCount: 0, groupCount: 0
             };
-
+            // Initialize counts based on constructor property analysis
+            let constructorIdentifiedCounts = {}; 
+            
             if (!snapshotJsonString) {
                 console.warn('Cannot analyze empty snapshot data.');
-                return counts;
+                return counts; 
             }
 
             let loggedNodesCount = 0;
-            const MAX_NODES_TO_LOG = 10;
+            const MAX_NODES_TO_LOG = 10; 
 
-            // Define target constructor names
+            // --- Target Type Definitions (Unchanged) --- 
             const typeToCountKey = {
                 'BufferGeometry': 'geometryCount',
-                'Material': 'materialCount', // Base type
-                'Texture': 'textureCount',   // Base type
-                'WebGLRenderTarget': 'renderTargetCount', // Base type
+                'Material': 'materialCount',
+                'Texture': 'textureCount',
+                'WebGLRenderTarget': 'renderTargetCount',
                 'Mesh': 'meshCount',
                 'Group': 'groupCount'
             };
-            // Use a Set for faster lookups of types that should only match exactly
-            const exactTargetTypeSet = new Set([
-                'BufferGeometry', 'Mesh', 'Group'
-                // Add others if needed, e.g., 'SkinnedMesh' if tracked separately
-            ]);
-            // Broader categories matched with 'includes'
+            const exactTargetTypeSet = new Set(['BufferGeometry', 'Mesh', 'Group']);
             const broadTypeToCountKey = {
                 'Material': 'materialCount',
                 'Texture': 'textureCount',
@@ -180,118 +177,267 @@ async function runWatchdog() {
             const broadExclusions = {
                 'Material': ['Loader', 'Definition', 'Creator'],
                 'Texture': ['Loader', 'Encoding']
-                // No exclusions needed for WebGLRenderTarget 'includes' check currently
             };
+            // We still need the set of types we care about for constructor analysis target
+            const reportPropertiesForTypes = new Set(Object.keys(typeToCountKey)); 
 
+            // --- Filtering Sets for Constructor Analysis --- 
+            const jsBuiltIns = new Set([
+                'Object', 'Array', 'Function', 'String', 'Number', 'Boolean', 'Symbol', 'Date', 
+                'Error', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError', 
+                'RegExp', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Promise', 
+                'ArrayBuffer', 'SharedArrayBuffer', 'DataView', 'Atomics', 'JSON', 'Math', 'Reflect',
+                'Intl', 'Collator', 'DateTimeFormat', 'ListFormat', 'NumberFormat', 'PluralRules', 'RelativeTimeFormat', 'Locale',
+                'AggregateError', 'FinalizationRegistry', 'WeakRef', 'Iterator', 'AsyncIterator', 
+                'GeneratorFunction', 'AsyncFunction', 'AsyncGeneratorFunction', 'InternalError', 'SuppressedError',
+                'DisposableStack', 'AsyncDisposableStack' // Added more built-ins
+            ]);
+            // Includes internal WebGL wrappers and lower-level Three.js internals
+            const webglInternalsExclude = new Set([
+                'WebGLRenderingContext', 'WebGL2RenderingContext', 'WebGLActiveInfo', 'WebGLBuffer', 
+                'WebGLContextEvent', 'WebGLFramebuffer', 'WebGLProgram', 'WebGLQuery', 'WebGLRenderbuffer', 
+                'WebGLSampler', 'WebGLShader', 'WebGLShaderPrecisionFormat', 'WebGLSync', 'WebGLTransformFeedback', 
+                'WebGLUniformLocation', 'WebGLVertexArrayObject', 'WebGLTexture',
+                'OESTextureFloatLinear',
+                // Three.js specific internals/helpers related to WebGL
+                'WebGLAnimation', 'WebGLAttributes', 'WebGLBackground', 'WebGLBindingStates', 'WebGLBufferRenderer', 
+                'WebGLCapabilities', 'WebGLClipping', 'WebGLCubeMaps', 'WebGLCubeUVMaps', 'WebGLExtensions', 
+                'WebGLGeometries', 'WebGLIndexedBufferRenderer', 'WebGLInfo', 'WebGLMaterials', 'WebGLMorphtargets', 
+                'WebGLMultipleRenderTargets', 'WebGLObject', 'WebGLObjects', 'WebGLPrograms', 'WebGLProperties', 
+                'WebGLRenderLists', 'WebGLRenderStates', 'WebGLRenderer', 'WebGL1Renderer', 'WebGLShaderCache', 
+                'WebGLShadowMap', 'WebGLState', 'WebGLTextures', 'WebGLUniforms', 'WebGLUniformsGroups', 'WebGLUtils',
+                'Uniform', 'SingleUniform', 'PureArrayUniform', 'StructuredUniform', 'UniformsGroup', 
+                'PropertyBinding', 'PropertyMixer', 'ImageUtils', 'PMREMGenerator', 'WebXRManager', 'WebXRController',
+                'WebGLShaderStage', 'WebGLCubeRenderTarget', 'WebGLArrayRenderTarget', 'WebGL3DRenderTarget' // Keep WebGLRenderTarget itself
+            ]);
+            const browserApiExcludes = new Set([
+                'Window', 'Event', 'CustomEvent', 'UIEvent', 'MouseEvent', 'KeyboardEvent', 'TouchEvent', 'PointerEvent',
+                'MessageChannel', 'MessageEvent', 'MessagePort', 'XMLHttpRequest', 'URL', 'URLSearchParams', 
+                'Location', 'History', 'Navigator', 'Performance', 'Console', 'Worker', 'SharedWorker', 
+                'WebSocket', 'ReadableStream', 'ReadableStreamDefaultController', 'ReadableStreamDefaultReader',
+                'Headers', 'Request', 'Response', 'Blob', 'ImageData', 'ImageBitmap', 'OffscreenCanvas',
+                'OffscreenCanvasRenderingContext2D', 'CanvasRenderingContext2D', 'CanvasGradient',
+                'AudioContext', 'BaseAudioContext', 'AudioNode', 'AudioParam', 'AudioBuffer', 'AudioDestinationNode', 'GainNode', 
+                'ProgressEvent', 'BroadcastChannel', 'Lock', 'LockManager', 'MediaQueryList', 'Storage'
+                // Add more as needed
+            ]);
+            const domExcludes = new Set([
+                 'Node', 'Element', 'Document', 'CharacterData', 'Text', 'HTMLElement', 'HTMLCollection', 'NodeList', 
+                 'DOMRect', 'DOMRectReadOnly', 'DOMStringMap', 'DOMTokenList',
+                 'HTMLBodyElement', 'HTMLButtonElement', 'HTMLCanvasElement', 'HTMLDivElement', 'HTMLDocument', 
+                 'HTMLHeadElement', 'HTMLHeadingElement', 'HTMLIFrameElement', 'HTMLImageElement', 'HTMLInputElement', 
+                 'HTMLLinkElement', 'HTMLScriptElement', 'HTMLStyleElement' // Common HTML elements
+            ]);
+            const threeHelpersExclude = new Set([
+                'ArrowHelper', 'AxesHelper', 'BoxHelper', 'Box3Helper', 'CameraHelper', 'DirectionalLightHelper',
+                'GridHelper', 'HemisphereLightHelper', 'PlaneHelper', 'PointLightHelper', 'PolarGridHelper', 
+                'SkeletonHelper', 'SpotLightHelper'
+            ]);
+            const threeLoadersExclude = new Set([
+                'AnimationLoader', 'AudioLoader', 'BufferGeometryLoader', 'CompressedTextureLoader', 'CubeTextureLoader',
+                'DataTextureLoader', 'FileLoader', 'ImageLoader', 'ImageBitmapLoader', 'Loader', 'LoaderUtils',
+                'MaterialLoader', 'ObjectLoader', 'TextureLoader', 'GLTFLoader'
+                // GLTF specifics (optional to exclude)
+                // 'GLTFParser', 'GLTFRegistry', 'GLTFBinaryExtension', 'GLTFDracoMeshCompressionExtension', 
+                // 'GLTFLightsExtension', 'GLTFMaterials*Extension', 'GLTFMesh*Extension', 'GLTFTexture*Extension' 
+            ]);
+            const threeMathExclude = new Set([
+                'Box2', 'Box3', 'Color', 'ColorKeyframeTrack', 'Cylindrical', 'Euler', 'Frustum', 'Interpolant',
+                'CubicInterpolant', 'DiscreteInterpolant', 'LinearInterpolant', 'QuaternionLinearInterpolant', 
+                'Line3', 'Matrix3', 'Matrix4', 'Plane', 'Quaternion', 'Ray', 'Sphere', 'Spherical', 
+                'SphericalHarmonics3', 'Triangle', 'Vector2', 'Vector3', 'Vector4'
+            ]);
+            const threeCurvesExclude = new Set([
+                'ArcCurve', 'CatmullRomCurve3', 'CubicBezierCurve', 'CubicBezierCurve3', 'Curve', 'CurvePath',
+                'EllipseCurve', 'LineCurve', 'LineCurve3', 'Path', 'QuadraticBezierCurve', 'QuadraticBezierCurve3',
+                'Shape', 'ShapePath', 'SplineCurve'
+            ]);
+            // Includes TypedArrays themselves and the Three.js BufferAttribute wrappers
+            const typedArrayAndAttributesExclude = new Set([
+                'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 
+                'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
+                'Float16Array', // If used
+                'BufferAttribute', 'GLBufferAttribute', 'InstancedBufferAttribute', 'InterleavedBufferAttribute',
+                'Float16BufferAttribute', 'Float32BufferAttribute', 'Float64BufferAttribute',
+                'Int8BufferAttribute', 'Int16BufferAttribute', 'Int32BufferAttribute',
+                'Uint8BufferAttribute', 'Uint16BufferAttribute', 'Uint32BufferAttribute', 'Uint8ClampedBufferAttribute'
+            ]);
+            const otherLibsExclude = new Set([
+                // Supabase / GoTrue
+                'GoTrueAdminApi', 'GoTrueClient', 'SupabaseAuthClient', 'SupabaseClient', 
+                'AuthApiError', 'AuthError', 'AuthImplicitGrantRedirectError', 'AuthInvalidCredentialsError',
+                'AuthInvalidJwtError', 'AuthInvalidTokenResponseError', 'AuthPKCEGrantCodeExchangeError', 
+                'AuthRetryableFetchError', 'AuthSessionMissingError', 'AuthUnknownError', 'AuthWeakPasswordError',
+                'CustomAuthError',
+                // Postgrest
+                'PostgrestBuilder', 'PostgrestClient', 'PostgrestError', 'PostgrestFilterBuilder', 
+                'PostgrestQueryBuilder', 'PostgrestTransformBuilder',
+                // Storage
+                'StorageApiError', 'StorageBucketApi', 'StorageClient', 'StorageError', 'StorageFileApi', 'StorageUnknownError',
+                // Realtime
+                'RealtimeChannel', 'RealtimeClient', 'RealtimePresence', 'Timer', 'Serializer', 'Push',
+                // Functions
+                'FunctionsClient', 'FunctionsError', 'FunctionsFetchError', 'FunctionsHttpError', 'FunctionsRelayError',
+                // Other potential noise from build/dev tools
+                'Source', 'HttpError', 'Exception', 'Deferred', 'EventEmitter', 'WebSocketClient', 'WSWebSocketDummy',
+                'WebpackLogger', 'clientTapableSyncBailHook' // From previous logs
+            ]);
 
             try {
                 const snapshot = JSON.parse(snapshotJsonString);
 
-                // --- Validate Snapshot Structure ---
-                if (!snapshot?.nodes || !snapshot.strings || !snapshot.snapshot?.meta?.node_fields || !snapshot.snapshot?.meta?.node_types?.[0] ||
-                    !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.strings) ||
-                    !Array.isArray(snapshot.snapshot.meta.node_fields) || !Array.isArray(snapshot.snapshot.meta.node_types[0])) {
-                    console.warn('Snapshot JSON parsed, but essential structure (nodes, strings, meta) not found or invalid.');
-                    return counts; // Return zero counts
+                // --- Validate Snapshot Structure (Unchanged) --- 
+                if (!snapshot?.nodes || !snapshot.edges || !snapshot.strings || 
+                    !snapshot.snapshot?.meta?.node_fields || !snapshot.snapshot.meta.edge_fields || 
+                    !snapshot.snapshot.meta.node_types?.[0] || !snapshot.snapshot.meta.edge_types?.[0] ||
+                    !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges) || !Array.isArray(snapshot.strings) ||
+                    !Array.isArray(snapshot.snapshot.meta.node_fields) || !Array.isArray(snapshot.snapshot.meta.edge_fields) ||
+                    !Array.isArray(snapshot.snapshot.meta.node_types[0]) || !Array.isArray(snapshot.snapshot.meta.edge_types[0])) {
+                    console.warn('Snapshot JSON parsed, but essential structure (nodes, edges, strings, meta) not found or invalid.');
+                    return counts;
                 }
 
                 const nodes = snapshot.nodes;
+                const edges = snapshot.edges;
                 const strings = snapshot.strings;
                 const meta = snapshot.snapshot.meta;
                 const nodeFields = meta.node_fields;
                 const nodeFieldCount = nodeFields.length;
-                const nodeTypes = meta.node_types[0]; // V8 format puts types here
-
-                // --- Get Field Offsets ---
+                const nodeTypes = meta.node_types[0];
                 const nodeNameOffset = nodeFields.indexOf('name');
                 const nodeTypeOffset = nodeFields.indexOf('type');
-                // Add offsets for self_size, retained_size later if needed
+                const nodeEdgeCountOffset = nodeFields.indexOf('edge_count');
+                const edgeFields = meta.edge_fields;
+                const edgeFieldCount = edgeFields.length;
+                const edgeTypes = meta.edge_types[0];
+                const edgeTypeOffset = edgeFields.indexOf('type');
+                const edgeNameOrIndexOffset = edgeFields.indexOf('name_or_index');
+                const edgeToNodeOffset = edgeFields.indexOf('to_node'); 
 
-                if (nodeNameOffset === -1 || nodeTypeOffset === -1) {
-                     console.error('Could not find required fields \'name\' or \'type\' in snapshot meta.');
+                if ([nodeNameOffset, nodeTypeOffset, nodeEdgeCountOffset, edgeTypeOffset, edgeNameOrIndexOffset, edgeToNodeOffset].includes(-1)) {
+                     console.error('Could not find required fields in snapshot meta.');
                      return counts;
                 }
 
-                console.log(`Iterating through ${nodes.length / nodeFieldCount} nodes...`);
+                console.log(`Iterating through ${nodes.length / nodeFieldCount} nodes and ${edges.length / edgeFieldCount} edges...`);
 
-                // --- Node Iteration ---
+                // --- Node & Edge Iteration --- 
+                let edgeCursor = 0; 
                 for (let i = 0; i < nodes.length; i += nodeFieldCount) {
                     const nodeTypeIndex = nodes[i + nodeTypeOffset];
                     const nodeNameIndex = nodes[i + nodeNameOffset];
+                    const edgeCount = nodes[i + nodeEdgeCountOffset]; 
 
-                    // Validate indices before accessing arrays
-                    if (nodeTypeIndex < 0 || nodeTypeIndex >= nodeTypes.length) continue;
+                    if (nodeTypeIndex < 0 || nodeTypeIndex >= nodeTypes.length) continue; 
                     const nodeTypeName = nodeTypes[nodeTypeIndex];
 
-                    // We are primarily interested in 'object' type nodes for constructor checks
-                    if (nodeTypeName !== 'object') {
-                        continue;
-                    }
+                    if (nodeNameIndex < 0 || nodeNameIndex >= strings.length) continue; 
+                    const ownerNodeName = strings[nodeNameIndex]; 
 
-                    if (nodeNameIndex < 0 || nodeNameIndex >= strings.length) continue;
-                    const nodeName = strings[nodeNameIndex];
-
-                    // --- Match Node Name --- 
-                    let matchedBaseType = null;
-                    let countKey = null;
-
-                    if (exactTargetTypeSet.has(nodeName)) {
-                        // Exact match (e.g., 'Mesh', 'Group', 'BufferGeometry')
-                        matchedBaseType = nodeName;
-                        countKey = typeToCountKey[matchedBaseType];
-                    } else {
-                        // Check broader categories using 'includes'
-                        for (const baseType in broadTypeToCountKey) {
-                            if (nodeName.includes(baseType)) {
-                                // Check exclusions for this broad type
-                                const exclusions = broadExclusions[baseType] || [];
-                                if (!exclusions.some(ex => nodeName.includes(ex))) {
-                                     matchedBaseType = baseType;
-                                     countKey = broadTypeToCountKey[matchedBaseType];
-                                     break; // Found a broad match, stop checking others
+                    // --- Count Node by Name (No more node structure logging needed here) ---
+                    if (nodeTypeName === 'object') {
+                        let matchedBaseType = null;
+                        let countKey = null;
+                        if (exactTargetTypeSet.has(ownerNodeName)) {
+                            matchedBaseType = ownerNodeName;
+                            countKey = typeToCountKey[matchedBaseType];
+                        } else {
+                            for (const baseType in broadTypeToCountKey) {
+                                if (ownerNodeName.includes(baseType)) {
+                                    const exclusions = broadExclusions[baseType] || [];
+                                    if (!exclusions.some(ex => ownerNodeName.includes(ex))) {
+                                         matchedBaseType = baseType;
+                                         countKey = broadTypeToCountKey[matchedBaseType];
+                                         break; 
+                                    }
                                 }
                             }
                         }
-                    }
-                    
-                    // --- Increment Count and Log --- 
-                    if (countKey) { // Check if countKey was assigned
-                        counts[countKey]++;
-
-                        // Log the first few matching nodes
-                        if (loggedNodesCount < MAX_NODES_TO_LOG) {
-                            console.log(`--- Found matching node #${loggedNodesCount + 1} (Type: ${nodeName}) ---`);
-                            const nodeData = {};
-                            nodeFields.forEach((field, index) => {
-                                const value = nodes[i + index];
-                                nodeData[field] = value;
-                                // Resolve indices to strings where possible/useful
-                                if (field === 'name' && typeof value === 'number' && value < strings.length) {
-                                    nodeData[`${field}_resolved`] = strings[value];
-                                }
-                                if (field === 'type' && typeof value === 'number' && value < nodeTypes.length) {
-                                    nodeData[`${field}_resolved`] = nodeTypes[value];
-                                }
-                            });
-                            // Use try-catch for stringify as nodes can be complex/circular for logging
-                            try {
-                                 console.log(JSON.stringify(nodeData, null, 2));
-                            } catch (logErr) {
-                                 console.log("Could not stringify node data:", logErr.message);
-                                 console.log("Raw node data object:", nodeData); // Log raw object if stringify fails
-                            }
-                            loggedNodesCount++;
+                        if (countKey) {
+                            counts[countKey]++;
                         }
                     }
+
+                    // --- Process Outgoing Edges for Constructor Analysis --- 
+                    const currentEdgeEnd = edgeCursor + edgeCount * edgeFieldCount;
+                    while(edgeCursor < currentEdgeEnd && edgeCursor < edges.length) {
+                        const edgeTypeIndex = edges[edgeCursor + edgeTypeOffset];
+                        const edgeNameOrIndex = edges[edgeCursor + edgeNameOrIndexOffset]; 
+                        const toNodeOffsetInNodesArray = edges[edgeCursor + edgeToNodeOffset]; 
+
+                        if (edgeTypeIndex >= 0 && edgeTypeIndex < edgeTypes.length) {
+                            const edgeTypeName = edgeTypes[edgeTypeIndex];
+
+                            if (edgeTypeName === 'property') {
+                                 let propName = "(invalid_name_index)";
+                                 if (edgeNameOrIndex >= 0 && edgeNameOrIndex < strings.length) {
+                                    propName = strings[edgeNameOrIndex];
+                                 }
+
+                                 if (propName === 'constructor') {
+                                    const targetNodeNameFieldIndex = toNodeOffsetInNodesArray + nodeNameOffset;
+                                    if (targetNodeNameFieldIndex >= 0 && targetNodeNameFieldIndex < nodes.length) {
+                                        const targetNodeNameIndex = nodes[targetNodeNameFieldIndex];
+                                        if (targetNodeNameIndex >= 0 && targetNodeNameIndex < strings.length) {
+                                            const targetConstructorName = strings[targetNodeNameIndex];
+
+                                            // --- Apply Filters --- 
+                                            let isRelevantConstructor = true; 
+
+                                            if (jsBuiltIns.has(targetConstructorName) ||
+                                                targetConstructorName.startsWith('(') || targetConstructorName.startsWith('system /') || targetConstructorName.startsWith('v8') ||
+                                                webglInternalsExclude.has(targetConstructorName) ||
+                                                browserApiExcludes.has(targetConstructorName) ||
+                                                domExcludes.has(targetConstructorName) ||
+                                                threeHelpersExclude.has(targetConstructorName) ||
+                                                threeLoadersExclude.has(targetConstructorName) ||
+                                                threeMathExclude.has(targetConstructorName) ||
+                                                threeCurvesExclude.has(targetConstructorName) ||
+                                                typedArrayAndAttributesExclude.has(targetConstructorName) ||
+                                                otherLibsExclude.has(targetConstructorName) ||
+                                                (targetConstructorName.length <= 2 && targetConstructorName !== '_') ) 
+                                            {
+                                                isRelevantConstructor = false;
+                                            } 
+                                            // Optional: Add heuristic for names suggesting internals even if not explicitly excluded?
+                                            // else if (targetConstructorName.endsWith('Loader') || targetConstructorName.endsWith('Helper') || targetConstructorName.endsWith('Manager') || targetConstructorName.endsWith('Extension')) {
+                                            //     // Consider if we want to exclude these generic patterns too
+                                            // }
+
+                                            // --- Increment Count if Relevant --- 
+                                            if (isRelevantConstructor) {
+                                                constructorIdentifiedCounts[targetConstructorName] = (constructorIdentifiedCounts[targetConstructorName] || 0) + 1;
+                                            }
+                                        }
+                                    }
+                                 }
+                            }
+                        }
+                        edgeCursor += edgeFieldCount; 
+                    }
+                     edgeCursor = currentEdgeEnd; // Ensure cursor is correct after loop
+                }
+
+                // --- Log Constructor Analysis --- 
+                const constructorKeys = Object.keys(constructorIdentifiedCounts);
+                if (constructorKeys.length > 0) {
+                    console.log(`\n--- Constructor Property Analysis (Filtered) ---`);
+                    constructorKeys.sort(); 
+                    constructorKeys.forEach(constructorName => {
+                        if(constructorIdentifiedCounts[constructorName] > 0) {
+                            console.log(`${constructorName}: ${constructorIdentifiedCounts[constructorName]}`);
+                        }                
+                    });
+                    console.log(`--- End Constructor Analysis ---`);
                 }
 
             } catch (e) {
                 console.error('Error during snapshot analysis:', e.message, e.stack);
-                // Reset counts to 0 if error occurs during processing
-                Object.keys(counts).forEach(key => { counts[key] = 0; });
+                Object.keys(counts).forEach(key => { counts[key] = 0; }); // Reset node counts on error
+                constructorIdentifiedCounts = {}; // Reset constructor counts too
             }
 
-            console.log(`Analysis Complete - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
+            console.log(`Analysis Complete (Node Counts) - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
             return counts;
         }
 
