@@ -29,7 +29,7 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
     [X] Navigate into the directory: `cd vibe-watchdog`
     [X] Initialize a Node.js project: `npm init -y`
     [X] Install Puppeteer: `npm install puppeteer`
-    [X] Install `minimist`: `npm install minimist`)
+    [X] Install `minimist`: `npm install minimist`
     [X] Create the main script file (e.g., `watchdog.js`).
 
 2.  **Launch Browser & Navigate:**
@@ -57,26 +57,24 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
     [X] Keep track of previous snapshot analysis results (e.g., object counts) in variables accessible within the interval scope.
 
 6.  **Retrieve Snapshot Data:**
-    [ ] Modify `takeSnapshot` to handle data retrieval. The snapshot is streamed in chunks.
-    [ ] Create a way to accumulate these chunks. Attach a listener *before* calling `takeHeapSnapshot`:
+    [X] Modify `takeSnapshot` to handle data retrieval. The snapshot is streamed in chunks.
+    [X] Create a way to accumulate these chunks. Attach a listener *before* calling `takeHeapSnapshot`:
         ```javascript
         let snapshotData = '';
         cdpSession.on('HeapProfiler.addHeapSnapshotChunk', chunkEvent => {
             snapshotData += chunkEvent.chunk;
         });
-        await cdpSession.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });
-        // Need a way to know when the stream ends - often involves waiting or using reportProgress
-        // Simplification for MVP: Add a timeout or assume it finishes quickly after the command returns.
-        // Proper implementation requires more robust stream handling.
+        // Listener for progress/completion added
+        await cdpSession.send('HeapProfiler.takeHeapSnapshot', { reportProgress: true });
         ```
-    [ ] Return the complete `snapshotData` string (which is stringified JSON).
+    [X] Return the complete `snapshotData` string (which is stringified JSON).
 
 7.  **Basic Snapshot Parsing:**
-    [ ] Create a function `analyzeSnapshot(snapshotJsonString)`:
-        [ ] Parse the JSON: `const snapshot = JSON.parse(snapshotJsonString);`
-        [ ] Navigate the snapshot structure (requires understanding the `.heapsnapshot` format - specifically the `nodes` and `strings` arrays) to count instances of specific Three.js objects.
-        [ ] **MVP Simplification:** Instead of full parsing, use string searching on the JSON string for MVP: `snapshotJsonString.match(/BufferGeometry/g)?.length || 0`. This is **highly inaccurate** but serves as a placeholder for the MVP. *Replace with proper parsing later.*
-        [ ] Return an object with counts: `{ geometryCount: count1, materialCount: count2, textureCount: count3 }`
+    [X] Create a function `analyzeSnapshot(snapshotJsonString)`:
+        [X] Parse the JSON: `const snapshot = JSON.parse(snapshotJsonString);`
+        [X] Navigate the snapshot structure (requires understanding the `.heapsnapshot` format - specifically the `nodes` and `strings` arrays) to count instances of specific Three.js objects.
+        [X] **MVP Simplification:** Instead of full parsing, use string searching on the JSON string for MVP: `snapshotJsonString.match(/BufferGeometry/g)?.length || 0`. This is **highly inaccurate** but serves as a placeholder for the MVP. *Replace with proper parsing later.*
+        [X] Return an object with counts: `{ geometryCount: count1, materialCount: count2, textureCount: count3 }`
 
 8.  **Comparison Logic:**
     [ ] In the `setInterval` callback:
@@ -98,7 +96,6 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
 11. **Cleanup:**
     [ ] Ensure the browser is closed (`browser.close()`) when the script exits or is interrupted (e.g., using `process.on('SIGINT', ...)`).
     [ ] Create a basic `README.md` explaining the usage described above.
-
 
 **Next Steps (Post-MVP):**
 

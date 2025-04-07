@@ -33,42 +33,187 @@ async function runWatchdog() {
         // Steps 3-10 will go here...
         console.log('Connecting to DevTools Protocol...');
         const cdpSession = await page.target().createCDPSession();
+
+        // --- BEGIN ADDED DEBUG ---
+        // console.log('Attaching listener for ALL CDP session events...');
+        // cdpSession.on('*', (eventName, eventData) => {
+        //     // Avoid logging excessively large data chunks if they *do* eventually appear
+        //     if (eventName === 'HeapProfiler.addHeapSnapshotChunk') {
+        //         console.log(`DEBUG (Generic Listener): Received event: ${eventName} (Chunk length: ${eventData.chunk.length})`);
+        //     } else if (eventName === 'HeapProfiler.reportHeapSnapshotProgress') {
+        //          console.log(`DEBUG (Generic Listener): Received event: ${eventName} (Done: ${eventData.done}/${eventData.total})`);
+        //     } else {
+        //         // Log other events concisely
+        //         console.log(`DEBUG (Generic Listener): Received event: ${eventName}`);
+        //         // Optionally log small event data:
+        //         // try {
+        //         //     const dataStr = JSON.stringify(eventData);
+        //         //     if (dataStr.length < 200) { // Log only small data payloads
+        //         //         console.log(`  Data: ${dataStr}`);
+        //         //     } else {
+        //         //          console.log(`  Data: [Too large to log]`);
+        //         //     }
+        //         // } catch (e) {
+        //         //      console.log(`  Data: [Cannot stringify]`);
+        //         // }
+        //     }
+        // });
+        // --- END ADDED DEBUG ---
+
         await cdpSession.send('HeapProfiler.enable');
         console.log('HeapProfiler enabled.');
 
-        // Function to take a heap snapshot (will be expanded in Step 6)
+        // Function to take a heap snapshot (more robust waiting)
         async function takeSnapshot(session) {
             console.log('Taking heap snapshot...');
-            try {
-                await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });
-                console.log('Snapshot command sent.');
-                // In MVP Step 4, we don't process the result here.
-                // Data retrieval and analysis happen later.
-            } catch (err) {
-                console.error('Error taking heap snapshot:', err.message);
-            }
+            const SNAPSHOT_TIMEOUT_MS = 60000; // 60 seconds overall timeout
+            const CHUNK_QUIET_PERIOD_MS = 500; // Wait 500ms after last chunk/finished signal
+
+            return new Promise(async (resolve, reject) => {
+                let chunks = [];
+                let finishedReported = false;
+                let progressListener;
+                let chunkListener;
+                let overallTimeoutId;
+                let quietPeriodTimeoutId = null; // Timeout for waiting after last chunk
+
+                const cleanup = () => {
+                    clearTimeout(overallTimeoutId);
+                    clearTimeout(quietPeriodTimeoutId);
+                    if (chunkListener) session.off('HeapProfiler.addHeapSnapshotChunk', chunkListener);
+                    if (progressListener) session.off('HeapProfiler.reportHeapSnapshotProgress', progressListener);
+                };
+
+                const finalizeSnapshot = () => {
+                    console.log(`Snapshot finalize triggered. Joining ${chunks.length} chunks.`);
+                    cleanup();
+                    resolve(chunks.join(''));
+                };
+
+                overallTimeoutId = setTimeout(() => {
+                    cleanup();
+                    console.error(`Snapshot timed out after ${SNAPSHOT_TIMEOUT_MS / 1000} seconds.`);
+                    reject(new Error('Snapshot timeout'));
+                }, SNAPSHOT_TIMEOUT_MS);
+
+                chunkListener = (event) => {
+                    // Clear any existing quiet period timeout, as we just got a chunk
+                    clearTimeout(quietPeriodTimeoutId);
+
+                    chunks.push(event.chunk);
+                    // console.log(`DEBUG: Received chunk, length: ${event.chunk.length}, total chunks: ${chunks.length}`);
+
+                    // If finished has been reported, set a new timeout to finalize
+                    // If more chunks arrive, this timeout will be cleared and reset
+                    if (finishedReported) {
+                        quietPeriodTimeoutId = setTimeout(finalizeSnapshot, CHUNK_QUIET_PERIOD_MS);
+                    }
+                };
+
+                progressListener = (event) => {
+                    // console.log(`Snapshot progress: ${event.done}/${event.total}`);
+                    if (event.finished) {
+                        console.log(`Snapshot finished reporting (Size ${event.total} reported, may be inaccurate).`);
+                        finishedReported = true;
+                        session.off('HeapProfiler.reportHeapSnapshotProgress', progressListener);
+                        progressListener = null;
+
+                        // Start the quiet period timeout now in case no more chunks arrive *at all*
+                        // or if they arrived before this 'finished' signal
+                        clearTimeout(quietPeriodTimeoutId); // Clear any previous just in case
+                        quietPeriodTimeoutId = setTimeout(finalizeSnapshot, CHUNK_QUIET_PERIOD_MS);
+                    }
+                };
+
+                session.on('HeapProfiler.addHeapSnapshotChunk', chunkListener);
+                session.on('HeapProfiler.reportHeapSnapshotProgress', progressListener);
+
+                try {
+                    console.log('Sending HeapProfiler.takeHeapSnapshot command...');
+                    await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: true, treatGlobalObjectsAsRoots: true }); // Added treatGlobalObjectsAsRoots
+                    // console.log('Snapshot command sent, waiting for progress and chunks...');
+                } catch (err) {
+                    console.error('Error sending takeHeapSnapshot command:', err.message);
+                    cleanup();
+                    reject(err);
+                }
+            });
         }
 
-        // Step 5: Implement Snapshot Interval
-        let previousCounts = null; // To store results from the previous snapshot
+        // Step 7: Basic Snapshot Parsing (MVP Implementation - slightly improved)
+        function analyzeSnapshot(snapshotJsonString) {
+            console.log('Analyzing snapshot (MVP JSON string array search)...');
+            if (!snapshotJsonString) {
+                console.warn('Cannot analyze empty snapshot data.');
+                return { geometryCount: 0, materialCount: 0, textureCount: 0 };
+            }
 
-        console.log(`Setting snapshot interval to ${interval}ms`);
+            let geometryCount = 0;
+            let materialCount = 0;
+            let textureCount = 0;
+
+            try {
+                const snapshot = JSON.parse(snapshotJsonString);
+                if (snapshot && snapshot.strings && Array.isArray(snapshot.strings)) {
+                    console.log(`DEBUG: Searching within ${snapshot.strings.length} strings in the snapshot.`);
+
+                    // More targeted, but still basic, search within the strings array
+                    for (const str of snapshot.strings) {
+                        // Use includes for simple substring matching
+                        if (str.includes('BufferGeometry')) {
+                            geometryCount++;
+                        }
+                        // Be careful with generic 'Material' - might match unrelated things
+                        if (str.includes('Material') && !str.includes('MaterialDefinition')) { // Example exclusion
+                            materialCount++;
+                        }
+                        if (str.includes('Texture') && !str.includes('TextureEncoding')) { // Example exclusion
+                            textureCount++;
+                        }
+                    }
+                } else {
+                    console.warn('Snapshot JSON parsed, but snapshot.strings array not found or not an array.');
+                }
+            } catch (e) {
+                console.error('Error parsing snapshot JSON:', e.message);
+                // Fallback to original simple match as a last resort? Or just return 0?
+                // Returning 0 is safer if parsing fails.
+                return { geometryCount: 0, materialCount: 0, textureCount: 0 };
+            }
+
+            console.log(`Analysis - Geometries: ${geometryCount}, Materials: ${materialCount}, Textures: ${textureCount}`);
+            return { geometryCount, materialCount, textureCount };
+        }
+
+        // Take Initial Snapshot & Analysis
+        console.log('\n--- Initial Snapshot ---');
+        const initialSnapshotData = await takeSnapshot(cdpSession);
+        let previousCounts = analyzeSnapshot(initialSnapshotData);
+        console.log('--- Initial Snapshot End ---');
+
+        // Step 5: Implement Snapshot Interval
+        console.log(`\nSetting snapshot interval to ${interval}ms`);
         const intervalId = setInterval(async () => {
             console.log('\n--- Interval Start ---');
-            // Step 6: Retrieve snapshot data (placeholder for now)
-            // Step 7: Analyze snapshot (placeholder for now)
-            // const newCounts = await analyzeSnapshot(snapshotData);
+            // Step 6: Retrieve snapshot data
+            const snapshotDataString = await takeSnapshot(cdpSession);
 
-            // Call takeSnapshot within the interval
-            await takeSnapshot(cdpSession); // For MVP, we just trigger it
+            let newCounts = null;
+            if (snapshotDataString) {
+                console.log(`Received snapshot data: ${Math.round(snapshotDataString.length / 1024)} KB`);
+                // Step 7: Analyze snapshot
+                newCounts = analyzeSnapshot(snapshotDataString);
+            }
 
             // Step 8: Comparison Logic (placeholder for now)
-            if (previousCounts) {
+            if (previousCounts && newCounts) {
                 // Compare newCounts with previousCounts
                 console.log('Comparing with previous snapshot...');
+            } else if (!newCounts) {
+                console.warn('Skipping comparison due to missing new snapshot data.');
             }
-            // Update previousCounts (will use actual data later)
-            // previousCounts = newCounts;
+            // Update previousCounts for the next interval
+            previousCounts = newCounts || previousCounts; // Keep old counts if new analysis failed
             console.log('--- Interval End ---');
         }, interval);
 
