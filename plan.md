@@ -100,7 +100,18 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
 **Next Steps (Post-MVP):**
 
 [ ] **Robust Snapshot Parsing:** Implement proper navigation of the snapshot graph structure for accurate object counting.
+    [ ] **Goal:** Replace the inaccurate MVP string search in `analyzeSnapshot` with analysis based on the actual heap graph.
+    [ ] **Sub-Steps:**
+        [ ] Parse the snapshot JSON string (`JSON.parse`).
+        [ ] Validate the structure (`snapshot.nodes`, `snapshot.edges`, `snapshot.strings`).
+        [ ] Efficiently map string indices to strings (e.g., build a Map or access `snapshot.strings` directly).
+        [ ] Iterate through `snapshot.nodes`.
+        [ ] For each `node`, determine its constructor name via `snapshot.strings[node.name]`.
+        [ ] If the constructor name matches a target type (e.g., 'BufferGeometry', 'Mesh', 'WebGLRenderTarget', 'Material', 'Texture', 'Group', consider subtypes later), increment an accurate counter for that type.
+        [ ] **Refinement:** Aggregate `node.self_size` and `node.retained_size` for each tracked type during iteration. This provides much more valuable data than just counts.
+        [ ] Modify `analyzeSnapshot` to return the object with accurate counts and potentially aggregated sizes.
 [ ] **Advanced Heuristics:** Analyze retained sizes, identify detached objects.
+    [ ] **Goal:** Use the `retained_size` information gathered during parsing to detect potentially leaked objects more effectively than just relying on count increases.
 [ ] **Source Mapping:** If possible, try to map leaks back to specific parts of the game code (very complex).
 [ ] **User Interface:** Create a simple web UI (using Express, etc.) or a DevTools extension panel instead of just console logs.
 [ ] **Advanced Configuration:** Allow configuration of specific object types to track via command line or a config file.
