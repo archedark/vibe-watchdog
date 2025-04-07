@@ -145,17 +145,22 @@ async function runWatchdog() {
             console.log('Analyzing snapshot (MVP JSON string array search)...');
             if (!snapshotJsonString) {
                 console.warn('Cannot analyze empty snapshot data.');
-                return { geometryCount: 0, materialCount: 0, textureCount: 0 };
+                // Return object with all expected keys
+                return { geometryCount: 0, materialCount: 0, textureCount: 0, renderTargetCount: 0, meshCount: 0, groupCount: 0 };
             }
 
             let geometryCount = 0;
             let materialCount = 0;
             let textureCount = 0;
+            let renderTargetCount = 0;
+            let meshCount = 0;
+            let groupCount = 0;
+            // let object3DCount = 0; // Keep Object3D commented for now to avoid double counts
 
             try {
                 const snapshot = JSON.parse(snapshotJsonString);
                 if (snapshot && snapshot.strings && Array.isArray(snapshot.strings)) {
-                    console.log(`DEBUG: Searching within ${snapshot.strings.length} strings in the snapshot.`);
+                    // console.log(`DEBUG: Searching within ${snapshot.strings.length} strings in the snapshot.`);
 
                     // More targeted, but still basic, search within the strings array
                     for (const str of snapshot.strings) {
@@ -164,25 +169,38 @@ async function runWatchdog() {
                             geometryCount++;
                         }
                         // Be careful with generic 'Material' - might match unrelated things
-                        if (str.includes('Material') && !str.includes('MaterialDefinition')) { // Example exclusion
+                        if (str.includes('Material') && !str.includes('MaterialDefinition') && !str.includes('MaterialLoader') && !str.includes('MaterialCreator')) {
                             materialCount++;
                         }
-                        if (str.includes('Texture') && !str.includes('TextureEncoding')) { // Example exclusion
+                        if (str.includes('Texture') && !str.includes('TextureEncoding') && !str.includes('TextureLoader')) {
                             textureCount++;
                         }
+                        // Added types
+                        if (str.includes('WebGLRenderTarget')) { // Catches WebGLCubeRenderTarget too
+                            renderTargetCount++;
+                        }
+                        // Basic Mesh count - might need refinement later if Skinned/Instanced added
+                        if (str === 'Mesh') { // Try exact match for Mesh first
+                             meshCount++;
+                        } else if (str.includes('Mesh') && !str.includes('SkinnedMesh') && !str.includes('InstancedMesh') && !str.includes('TextMesh')) { // Broader match with exclusions
+                             // This might overcount if 'Mesh' appears in other contexts, but is a starting point
+                             meshCount++;
+                        }
+                        if (str === 'Group') { // Exact match for Group
+                             groupCount++;
+                        }
+                        // if (str === 'Object3D') { object3DCount++; } // Still skip base Object3D for MVP
                     }
                 } else {
                     console.warn('Snapshot JSON parsed, but snapshot.strings array not found or not an array.');
                 }
             } catch (e) {
                 console.error('Error parsing snapshot JSON:', e.message);
-                // Fallback to original simple match as a last resort? Or just return 0?
-                // Returning 0 is safer if parsing fails.
-                return { geometryCount: 0, materialCount: 0, textureCount: 0 };
+                return { geometryCount: 0, materialCount: 0, textureCount: 0, renderTargetCount: 0, meshCount: 0, groupCount: 0 };
             }
 
-            console.log(`Analysis - Geometries: ${geometryCount}, Materials: ${materialCount}, Textures: ${textureCount}`);
-            return { geometryCount, materialCount, textureCount };
+            console.log(`Analysis - Geo: ${geometryCount}, Mat: ${materialCount}, Tex: ${textureCount}, RT: ${renderTargetCount}, Mesh: ${meshCount}, Grp: ${groupCount}`);
+            return { geometryCount, materialCount, textureCount, renderTargetCount, meshCount, groupCount };
         }
 
         // Take Initial Snapshot & Analysis
@@ -195,6 +213,9 @@ async function runWatchdog() {
         let geometryIncreaseStreak = 0;
         let materialIncreaseStreak = 0;
         let textureIncreaseStreak = 0;
+        let renderTargetIncreaseStreak = 0;
+        let meshIncreaseStreak = 0;
+        let groupIncreaseStreak = 0;
 
         // Step 5: Implement Snapshot Interval
         console.log(`\nSetting snapshot interval to ${interval}ms`);
@@ -212,7 +233,8 @@ async function runWatchdog() {
 
             // Step 8 & 9: Comparison Logic & Leak Detection Heuristic
             if (previousCounts && newCounts) {
-                console.log(`[${new Date().toLocaleTimeString()}] Counts - Geo: ${newCounts.geometryCount}, Mat: ${newCounts.materialCount}, Tex: ${newCounts.textureCount}`);
+                // Step 10: Log current counts
+                console.log(`[${new Date().toLocaleTimeString()}] Counts - Geo: ${newCounts.geometryCount}, Mat: ${newCounts.materialCount}, Tex: ${newCounts.textureCount}, RT: ${newCounts.renderTargetCount}, Mesh: ${newCounts.meshCount}, Grp: ${newCounts.groupCount}`);
 
                 // Compare Geometry
                 if (newCounts.geometryCount > previousCounts.geometryCount) {
@@ -247,25 +269,71 @@ async function runWatchdog() {
                     textureIncreaseStreak = 0;
                 }
 
-                 // Step 10: Alerting
-                 if (geometryIncreaseStreak >= threshold) {
+                // Compare Render Targets
+                if (newCounts.renderTargetCount > previousCounts.renderTargetCount) {
+                    renderTargetIncreaseStreak++;
+                    console.log(`RenderTarget count increased (${previousCounts.renderTargetCount} -> ${newCounts.renderTargetCount}). Streak: ${renderTargetIncreaseStreak}`);
+                } else {
+                    if (renderTargetIncreaseStreak > 0) {
+                        console.log('RenderTarget count did not increase, resetting streak.');
+                    }
+                    renderTargetIncreaseStreak = 0;
+                }
+
+                // Compare Meshes
+                if (newCounts.meshCount > previousCounts.meshCount) {
+                    meshIncreaseStreak++;
+                    console.log(`Mesh count increased (${previousCounts.meshCount} -> ${newCounts.meshCount}). Streak: ${meshIncreaseStreak}`);
+                } else {
+                     if (meshIncreaseStreak > 0) {
+                        console.log('Mesh count did not increase, resetting streak.');
+                     }
+                    meshIncreaseStreak = 0;
+                }
+
+                // Compare Groups
+                if (newCounts.groupCount > previousCounts.groupCount) {
+                    groupIncreaseStreak++;
+                    console.log(`Group count increased (${previousCounts.groupCount} -> ${newCounts.groupCount}). Streak: ${groupIncreaseStreak}`);
+                } else {
+                     if (groupIncreaseStreak > 0) {
+                         console.log('Group count did not increase, resetting streak.');
+                     }
+                    groupIncreaseStreak = 0;
+                }
+
+                // Step 10: Alerting
+                if (geometryIncreaseStreak >= threshold) {
                     console.warn(`*** Potential Geometry Leak Detected! Count increased for ${geometryIncreaseStreak} consecutive snapshots. ***`);
                     // Optional: Reset streak after warning? Or let it keep warning?
                     // geometryIncreaseStreak = 0; // Uncomment to warn only once per threshold breach
-                 }
-                 if (materialIncreaseStreak >= threshold) {
+                }
+                if (materialIncreaseStreak >= threshold) {
                     console.warn(`*** Potential Material Leak Detected! Count increased for ${materialIncreaseStreak} consecutive snapshots. ***`);
                     // materialIncreaseStreak = 0;
-                 }
-                 if (textureIncreaseStreak >= threshold) {
+                }
+                if (textureIncreaseStreak >= threshold) {
                     console.warn(`*** Potential Texture Leak Detected! Count increased for ${textureIncreaseStreak} consecutive snapshots. ***`);
                     // textureIncreaseStreak = 0;
-                 }
+                }
+                // Added Alerts
+                if (renderTargetIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential RenderTarget Leak Detected! Count increased for ${renderTargetIncreaseStreak} consecutive snapshots. ***`);
+                    // renderTargetIncreaseStreak = 0;
+                }
+                if (meshIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential Mesh Leak Detected! Count increased for ${meshIncreaseStreak} consecutive snapshots. ***`);
+                    // meshIncreaseStreak = 0;
+                }
+                if (groupIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential Group Leak Detected! Count increased for ${groupIncreaseStreak} consecutive snapshots. ***`);
+                    // groupIncreaseStreak = 0;
+                }
 
             } else if (!newCounts) {
                 console.warn('Skipping comparison due to missing new snapshot data.');
-            } else { // Only previousCounts exists (should only happen on first interval if initial snapshot failed?)
-                console.log(`[${new Date().toLocaleTimeString()}] Initial Counts - Geo: ${previousCounts.geometryCount}, Mat: ${previousCounts.materialCount}, Tex: ${previousCounts.textureCount}`);
+            } else { // Only previousCounts exists (first interval after successful initial snapshot)
+                console.log(`[${new Date().toLocaleTimeString()}] Initial Counts - Geo: ${previousCounts.geometryCount}, Mat: ${previousCounts.materialCount}, Tex: ${previousCounts.textureCount}, RT: ${previousCounts.renderTargetCount}, Mesh: ${previousCounts.meshCount}, Grp: ${previousCounts.groupCount}`); // Added new types
             }
             // Update previousCounts for the next interval
             previousCounts = newCounts || previousCounts; // Keep old counts if new analysis failed
