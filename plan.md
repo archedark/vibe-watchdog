@@ -33,17 +33,17 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
     [X] Create the main script file (e.g., `watchdog.js`).
 
 2.  **Launch Browser & Navigate:**
-    [ ] In `watchdog.js`, require Puppeteer and potentially an argument parser.
-    [ ] Parse command-line arguments to get the target `url` and `headless` mode preference. Validate that `--url` is provided.
-    [ ] Write an async function to launch a new Chrome instance (`puppeteer.launch({ headless: isHeadlessMode })`).
-    [ ] Create a new page (`browser.newPage()`).
-    [ ] Navigate the page to the provided target `url`.
-    [ ] Add basic error handling (e.g., if the URL is invalid or the page fails to load).
-    [ ] Log an initial message indicating the tool has started and warning about the simplified MVP analysis method (e.g., `console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.')`).
+    [X] In `watchdog.js`, require Puppeteer and potentially an argument parser.
+    [X] Parse command-line arguments to get the target `url` and `headless` mode preference. Validate that `--url` is provided.
+    [X] Write an async function to launch a new Chrome instance (`puppeteer.launch({ headless: isHeadlessMode })`).
+    [X] Create a new page (`browser.newPage()`).
+    [X] Navigate the page to the provided target `url`.
+    [X] Add basic error handling (e.g., if the URL is invalid or the page fails to load).
+    [X] Log an initial message indicating the tool has started and warning about the simplified MVP analysis method (e.g., `console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.')`).
 
 3.  **Connect to DevTools Protocol (CDP):**
-    [ ] Get the CDP session object from the page: `const cdpSession = await page.target().createCDPSession();`
-    [ ] Enable the `HeapProfiler` domain: `await cdpSession.send('HeapProfiler.enable');`
+    [X] Get the CDP session object from the page: `const cdpSession = await page.target().createCDPSession();`
+    [X] Enable the `HeapProfiler` domain: `await cdpSession.send('HeapProfiler.enable');`
 
 4.  **Take Initial Heap Snapshot:**
     [ ] Define an async function `takeSnapshot(cdpSession)` that:
