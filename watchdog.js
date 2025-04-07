@@ -218,7 +218,7 @@ async function runWatchdog() {
                 'GeneratorFunction', 'AsyncFunction', 'AsyncGeneratorFunction', 'InternalError', 'SuppressedError',
                 'DisposableStack', 'AsyncDisposableStack', 
                 'CompileError', 'LinkError', 'RuntimeError', 'TypedArray',
-                'BigInt', 'DisplayNames', 'DurationFormat', 'Segmenter'
+                'BigInt', 'DisplayNames', 'DurationFormat', 'Segmenter', "GLTFBinaryExtension", "GLTFCubicSplineInterpolant", "GLTFCubicSplineQuaternionInterpolant", "GLTFDracoMeshCompressionExtension", "GLTFLightsExtension", "GLTFMaterialsAnisotropyExtension", "GLTFMaterialsBumpExtension", "GLTFMaterialsClearcoatExtension", "GLTFMaterialsEmissiveStrengthExtension", "GLTFMaterialsIorExtension", "GLTFMaterialsIridescenceExtension", "GLTFMaterialsSheenExtension", "GLTFMaterialsSpecularExtension", "GLTFMaterialsTransmissionExtension", "GLTFMaterialsUnlitExtension", "GLTFMaterialsVolumeExtension", "GLTFMeshGpuInstancing", "GLTFMeshQuantizationExtension", "GLTFMeshoptCompression", "GLTFParser", "GLTFRegistry", "GLTFTextureAVIFExtension", "GLTFTextureBasisUExtension", "GLTFTextureTransformExtension", "GLTFTextureWebPExtension",
             ]);
             const webglInternalsExclude = new Set([
                 'WebGLRenderingContext', 'WebGL2RenderingContext', 'WebGLActiveInfo', 'WebGLBuffer', 
@@ -305,8 +305,7 @@ async function runWatchdog() {
 
             // --- ADD THIS SET for manual exclusions ---
             const manualMiscExcludes = new Set([
-                'ExampleNoiseConstructor', // Add constructor names here that you want to ignore
-                'AnotherOneToIgnore'
+                "AudioAnalyser", "ClearMaskPass", "Composite", "FullScreenQuad", "FullscreenTriangleGeometry",  "InstancedInterleavedBuffer", "InterleavedBuffer", "LockAcquireTimeoutError", "MultiDrawRenderList", "NavigatorLockAcquireTimeoutError", "ProcessLockAcquireTimeoutError"
             ]);
 
             try {
