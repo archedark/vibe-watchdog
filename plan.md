@@ -46,9 +46,9 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
     [X] Enable the `HeapProfiler` domain: `await cdpSession.send('HeapProfiler.enable');`
 
 4.  **Take Initial Heap Snapshot:**
-    [ ] Define an async function `takeSnapshot(cdpSession)` that:
-        [ ] Sends the command to take a snapshot: `await cdpSession.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });`
-        [ ] **Note:** Retrieving the actual snapshot data is more complex (handled in Step 6). For now, just triggering it is enough to establish the process.
+    [X] Define an async function `takeSnapshot(cdpSession)` that:
+        [X] Sends the command to take a snapshot: `await cdpSession.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });`
+        [X] **Note:** Retrieving the actual snapshot data is more complex (handled in Step 6). For now, just triggering it is enough to establish the process.
 
 5.  **Implement Snapshot Interval:**
     [ ] Use `setInterval` within your main async function (after the page loads).

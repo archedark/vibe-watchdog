@@ -36,6 +36,22 @@ async function runWatchdog() {
         await cdpSession.send('HeapProfiler.enable');
         console.log('HeapProfiler enabled.');
 
+        // Function to take a heap snapshot (will be expanded in Step 6)
+        async function takeSnapshot(session) {
+            console.log('Taking heap snapshot...');
+            try {
+                await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: false });
+                console.log('Snapshot command sent.');
+                // In MVP Step 4, we don't process the result here.
+                // Data retrieval and analysis happen later.
+            } catch (err) {
+                console.error('Error taking heap snapshot:', err.message);
+            }
+        }
+
+        // Take the initial snapshot
+        await takeSnapshot(cdpSession);
+
         // Keep the browser open for now for subsequent steps
         // await browser.close(); // Will be moved to cleanup logic
 
