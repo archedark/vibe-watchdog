@@ -140,67 +140,159 @@ async function runWatchdog() {
             });
         }
 
-        // Step 7: Basic Snapshot Parsing (MVP Implementation - slightly improved)
+        // Step 7: Robust Snapshot Parsing (Graph Traversal Implementation)
         function analyzeSnapshot(snapshotJsonString) {
-            console.log('Analyzing snapshot (MVP JSON string array search)...');
+            console.log('Analyzing snapshot using graph traversal...');
+            // Initialize counts
+            let counts = {
+                geometryCount: 0, materialCount: 0, textureCount: 0,
+                renderTargetCount: 0, meshCount: 0, groupCount: 0
+            };
+
             if (!snapshotJsonString) {
                 console.warn('Cannot analyze empty snapshot data.');
-                // Return object with all expected keys
-                return { geometryCount: 0, materialCount: 0, textureCount: 0, renderTargetCount: 0, meshCount: 0, groupCount: 0 };
+                return counts;
             }
 
-            let geometryCount = 0;
-            let materialCount = 0;
-            let textureCount = 0;
-            let renderTargetCount = 0;
-            let meshCount = 0;
-            let groupCount = 0;
-            // let object3DCount = 0; // Keep Object3D commented for now to avoid double counts
+            let loggedNodesCount = 0;
+            const MAX_NODES_TO_LOG = 10;
+
+            // Define target constructor names
+            const typeToCountKey = {
+                'BufferGeometry': 'geometryCount',
+                'Material': 'materialCount', // Base type
+                'Texture': 'textureCount',   // Base type
+                'WebGLRenderTarget': 'renderTargetCount', // Base type
+                'Mesh': 'meshCount',
+                'Group': 'groupCount'
+            };
+            // Use a Set for faster lookups of types that should only match exactly
+            const exactTargetTypeSet = new Set([
+                'BufferGeometry', 'Mesh', 'Group'
+                // Add others if needed, e.g., 'SkinnedMesh' if tracked separately
+            ]);
+            // Broader categories matched with 'includes'
+            const broadTypeToCountKey = {
+                'Material': 'materialCount',
+                'Texture': 'textureCount',
+                'WebGLRenderTarget': 'renderTargetCount'
+            };
+            const broadExclusions = {
+                'Material': ['Loader', 'Definition', 'Creator'],
+                'Texture': ['Loader', 'Encoding']
+                // No exclusions needed for WebGLRenderTarget 'includes' check currently
+            };
+
 
             try {
                 const snapshot = JSON.parse(snapshotJsonString);
-                if (snapshot && snapshot.strings && Array.isArray(snapshot.strings)) {
-                    // console.log(`DEBUG: Searching within ${snapshot.strings.length} strings in the snapshot.`);
 
-                    // More targeted, but still basic, search within the strings array
-                    for (const str of snapshot.strings) {
-                        // Use includes for simple substring matching
-                        if (str.includes('BufferGeometry')) {
-                            geometryCount++;
-                        }
-                        // Be careful with generic 'Material' - might match unrelated things
-                        if (str.includes('Material') && !str.includes('MaterialDefinition') && !str.includes('MaterialLoader') && !str.includes('MaterialCreator')) {
-                            materialCount++;
-                        }
-                        if (str.includes('Texture') && !str.includes('TextureEncoding') && !str.includes('TextureLoader')) {
-                            textureCount++;
-                        }
-                        // Added types
-                        if (str.includes('WebGLRenderTarget')) { // Catches WebGLCubeRenderTarget too
-                            renderTargetCount++;
-                        }
-                        // Basic Mesh count - might need refinement later if Skinned/Instanced added
-                        if (str === 'Mesh') { // Try exact match for Mesh first
-                             meshCount++;
-                        } else if (str.includes('Mesh') && !str.includes('SkinnedMesh') && !str.includes('InstancedMesh') && !str.includes('TextMesh')) { // Broader match with exclusions
-                             // This might overcount if 'Mesh' appears in other contexts, but is a starting point
-                             meshCount++;
-                        }
-                        if (str === 'Group') { // Exact match for Group
-                             groupCount++;
-                        }
-                        // if (str === 'Object3D') { object3DCount++; } // Still skip base Object3D for MVP
-                    }
-                } else {
-                    console.warn('Snapshot JSON parsed, but snapshot.strings array not found or not an array.');
+                // --- Validate Snapshot Structure ---
+                if (!snapshot?.nodes || !snapshot.strings || !snapshot.snapshot?.meta?.node_fields || !snapshot.snapshot?.meta?.node_types?.[0] ||
+                    !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.strings) ||
+                    !Array.isArray(snapshot.snapshot.meta.node_fields) || !Array.isArray(snapshot.snapshot.meta.node_types[0])) {
+                    console.warn('Snapshot JSON parsed, but essential structure (nodes, strings, meta) not found or invalid.');
+                    return counts; // Return zero counts
                 }
+
+                const nodes = snapshot.nodes;
+                const strings = snapshot.strings;
+                const meta = snapshot.snapshot.meta;
+                const nodeFields = meta.node_fields;
+                const nodeFieldCount = nodeFields.length;
+                const nodeTypes = meta.node_types[0]; // V8 format puts types here
+
+                // --- Get Field Offsets ---
+                const nodeNameOffset = nodeFields.indexOf('name');
+                const nodeTypeOffset = nodeFields.indexOf('type');
+                // Add offsets for self_size, retained_size later if needed
+
+                if (nodeNameOffset === -1 || nodeTypeOffset === -1) {
+                     console.error('Could not find required fields \'name\' or \'type\' in snapshot meta.');
+                     return counts;
+                }
+
+                console.log(`Iterating through ${nodes.length / nodeFieldCount} nodes...`);
+
+                // --- Node Iteration ---
+                for (let i = 0; i < nodes.length; i += nodeFieldCount) {
+                    const nodeTypeIndex = nodes[i + nodeTypeOffset];
+                    const nodeNameIndex = nodes[i + nodeNameOffset];
+
+                    // Validate indices before accessing arrays
+                    if (nodeTypeIndex < 0 || nodeTypeIndex >= nodeTypes.length) continue;
+                    const nodeTypeName = nodeTypes[nodeTypeIndex];
+
+                    // We are primarily interested in 'object' type nodes for constructor checks
+                    if (nodeTypeName !== 'object') {
+                        continue;
+                    }
+
+                    if (nodeNameIndex < 0 || nodeNameIndex >= strings.length) continue;
+                    const nodeName = strings[nodeNameIndex];
+
+                    // --- Match Node Name --- 
+                    let matchedBaseType = null;
+                    let countKey = null;
+
+                    if (exactTargetTypeSet.has(nodeName)) {
+                        // Exact match (e.g., 'Mesh', 'Group', 'BufferGeometry')
+                        matchedBaseType = nodeName;
+                        countKey = typeToCountKey[matchedBaseType];
+                    } else {
+                        // Check broader categories using 'includes'
+                        for (const baseType in broadTypeToCountKey) {
+                            if (nodeName.includes(baseType)) {
+                                // Check exclusions for this broad type
+                                const exclusions = broadExclusions[baseType] || [];
+                                if (!exclusions.some(ex => nodeName.includes(ex))) {
+                                     matchedBaseType = baseType;
+                                     countKey = broadTypeToCountKey[matchedBaseType];
+                                     break; // Found a broad match, stop checking others
+                                }
+                            }
+                        }
+                    }
+                    
+                    // --- Increment Count and Log --- 
+                    if (countKey) { // Check if countKey was assigned
+                        counts[countKey]++;
+
+                        // Log the first few matching nodes
+                        if (loggedNodesCount < MAX_NODES_TO_LOG) {
+                            console.log(`--- Found matching node #${loggedNodesCount + 1} (Type: ${nodeName}) ---`);
+                            const nodeData = {};
+                            nodeFields.forEach((field, index) => {
+                                const value = nodes[i + index];
+                                nodeData[field] = value;
+                                // Resolve indices to strings where possible/useful
+                                if (field === 'name' && typeof value === 'number' && value < strings.length) {
+                                    nodeData[`${field}_resolved`] = strings[value];
+                                }
+                                if (field === 'type' && typeof value === 'number' && value < nodeTypes.length) {
+                                    nodeData[`${field}_resolved`] = nodeTypes[value];
+                                }
+                            });
+                            // Use try-catch for stringify as nodes can be complex/circular for logging
+                            try {
+                                 console.log(JSON.stringify(nodeData, null, 2));
+                            } catch (logErr) {
+                                 console.log("Could not stringify node data:", logErr.message);
+                                 console.log("Raw node data object:", nodeData); // Log raw object if stringify fails
+                            }
+                            loggedNodesCount++;
+                        }
+                    }
+                }
+
             } catch (e) {
-                console.error('Error parsing snapshot JSON:', e.message);
-                return { geometryCount: 0, materialCount: 0, textureCount: 0, renderTargetCount: 0, meshCount: 0, groupCount: 0 };
+                console.error('Error during snapshot analysis:', e.message, e.stack);
+                // Reset counts to 0 if error occurs during processing
+                Object.keys(counts).forEach(key => { counts[key] = 0; });
             }
 
-            console.log(`Analysis - Geo: ${geometryCount}, Mat: ${materialCount}, Tex: ${textureCount}, RT: ${renderTargetCount}, Mesh: ${meshCount}, Grp: ${groupCount}`);
-            return { geometryCount, materialCount, textureCount, renderTargetCount, meshCount, groupCount };
+            console.log(`Analysis Complete - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
+            return counts;
         }
 
         // Take Initial Snapshot & Analysis
@@ -356,7 +448,6 @@ async function runWatchdog() {
 }
 
 runWatchdog();
-
 // Basic cleanup on exit
 process.on('SIGINT', async () => {
     console.log('Received SIGINT. Closing browser...');
@@ -365,3 +456,4 @@ process.on('SIGINT', async () => {
     // For now, we rely on the main function's try/catch, but proper cleanup needed later
     process.exit(0);
 });
+
