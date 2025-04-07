@@ -148,8 +148,10 @@ async function runWatchdog() {
                 geometryCount: 0, materialCount: 0, textureCount: 0,
                 renderTargetCount: 0, meshCount: 0, groupCount: 0
             };
-            // Initialize counts based on constructor property analysis
-            let constructorIdentifiedCounts = {}; 
+            // Initialize counts based on constructor property analysis - now categorized
+            let threejsConstructorCounts = {}; 
+            let gameConstructorCounts = {};
+            let miscConstructorCounts = {}; // Keep for future use
             
             if (!snapshotJsonString) {
                 console.warn('Cannot analyze empty snapshot data.');
@@ -181,7 +183,31 @@ async function runWatchdog() {
             // We still need the set of types we care about for constructor analysis target
             const reportPropertiesForTypes = new Set(Object.keys(typeToCountKey)); 
 
-            // --- Filtering Sets for Constructor Analysis --- 
+            // --- Filtering Sets for Constructor Analysis (Re-inserting definitions) --- 
+            const knownThreejsTypes = new Set([
+                'Scene', 'Object3D', 'Mesh', 'Group', 'SkinnedMesh', 'InstancedMesh', 'BatchedMesh', 'LOD', 
+                'Points', 'Line', 'LineLoop', 'LineSegments', 'Sprite',
+                'BufferGeometry', 'InstancedBufferGeometry', 'BoxGeometry', 'CapsuleGeometry', 'CircleGeometry', 'ConeGeometry', 
+                'CylinderGeometry', 'DodecahedronGeometry', 'EdgesGeometry', 'ExtrudeGeometry', 'IcosahedronGeometry',
+                'LatheGeometry', 'OctahedronGeometry', 'PlaneGeometry', 'PolyhedronGeometry', 'RingGeometry', 
+                'ShapeGeometry', 'SphereGeometry', 'TetrahedronGeometry', 'TorusGeometry', 'TorusKnotGeometry', 
+                'TubeGeometry', 'WireframeGeometry', 'Shape', 'Path', 
+                'Material', 'LineBasicMaterial', 'LineDashedMaterial', 'MeshBasicMaterial', 'MeshDepthMaterial', 
+                'MeshDistanceMaterial', 'MeshLambertMaterial', 'MeshMatcapMaterial', 'MeshNormalMaterial', 
+                'MeshPhongMaterial', 'MeshPhysicalMaterial', 'MeshStandardMaterial', 'MeshToonMaterial', 
+                'PointsMaterial', 'RawShaderMaterial', 'ShaderMaterial', 'ShadowMaterial', 'SpriteMaterial',
+                'Texture', 'CanvasTexture', 'CompressedArrayTexture', 'CompressedCubeTexture', 'CompressedTexture',
+                'CubeTexture', 'Data3DTexture', 'DataArrayTexture', 'DataTexture', 'DepthTexture', 'FramebufferTexture',
+                'VideoTexture',
+                'WebGLRenderTarget', 'WebGLCubeRenderTarget', 'WebGLArrayRenderTarget', 
+                'Light', 'AmbientLight', 'DirectionalLight', 'HemisphereLight', 'LightProbe', 'PointLight', 
+                'RectAreaLight', 'SpotLight', 'LightShadow', 'DirectionalLightShadow', 'PointLightShadow', 'SpotLightShadow',
+                'Camera', 'ArrayCamera', 'OrthographicCamera', 'PerspectiveCamera', 'StereoCamera', 'CubeCamera',
+                'Audio', 'AudioListener', 'PositionalAudio',
+                'AnimationClip', 'AnimationMixer', 'AnimationAction', 'AnimationObjectGroup', 'KeyframeTrack',
+                'BooleanKeyframeTrack', 'ColorKeyframeTrack', 'NumberKeyframeTrack', 'QuaternionKeyframeTrack', 'StringKeyframeTrack', 'VectorKeyframeTrack',
+                'Raycaster', 'Layers', 'Clock', 'EventDispatcher' 
+            ]);
             const jsBuiltIns = new Set([
                 'Object', 'Array', 'Function', 'String', 'Number', 'Boolean', 'Symbol', 'Date', 
                 'Error', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError', 
@@ -190,16 +216,16 @@ async function runWatchdog() {
                 'Intl', 'Collator', 'DateTimeFormat', 'ListFormat', 'NumberFormat', 'PluralRules', 'RelativeTimeFormat', 'Locale',
                 'AggregateError', 'FinalizationRegistry', 'WeakRef', 'Iterator', 'AsyncIterator', 
                 'GeneratorFunction', 'AsyncFunction', 'AsyncGeneratorFunction', 'InternalError', 'SuppressedError',
-                'DisposableStack', 'AsyncDisposableStack' // Added more built-ins
+                'DisposableStack', 'AsyncDisposableStack', 
+                'CompileError', 'LinkError', 'RuntimeError', 'TypedArray',
+                'BigInt', 'DisplayNames', 'DurationFormat', 'Segmenter'
             ]);
-            // Includes internal WebGL wrappers and lower-level Three.js internals
             const webglInternalsExclude = new Set([
                 'WebGLRenderingContext', 'WebGL2RenderingContext', 'WebGLActiveInfo', 'WebGLBuffer', 
                 'WebGLContextEvent', 'WebGLFramebuffer', 'WebGLProgram', 'WebGLQuery', 'WebGLRenderbuffer', 
                 'WebGLSampler', 'WebGLShader', 'WebGLShaderPrecisionFormat', 'WebGLSync', 'WebGLTransformFeedback', 
                 'WebGLUniformLocation', 'WebGLVertexArrayObject', 'WebGLTexture',
                 'OESTextureFloatLinear',
-                // Three.js specific internals/helpers related to WebGL
                 'WebGLAnimation', 'WebGLAttributes', 'WebGLBackground', 'WebGLBindingStates', 'WebGLBufferRenderer', 
                 'WebGLCapabilities', 'WebGLClipping', 'WebGLCubeMaps', 'WebGLCubeUVMaps', 'WebGLExtensions', 
                 'WebGLGeometries', 'WebGLIndexedBufferRenderer', 'WebGLInfo', 'WebGLMaterials', 'WebGLMorphtargets', 
@@ -208,7 +234,7 @@ async function runWatchdog() {
                 'WebGLShadowMap', 'WebGLState', 'WebGLTextures', 'WebGLUniforms', 'WebGLUniformsGroups', 'WebGLUtils',
                 'Uniform', 'SingleUniform', 'PureArrayUniform', 'StructuredUniform', 'UniformsGroup', 
                 'PropertyBinding', 'PropertyMixer', 'ImageUtils', 'PMREMGenerator', 'WebXRManager', 'WebXRController',
-                'WebGLShaderStage', 'WebGLCubeRenderTarget', 'WebGLArrayRenderTarget', 'WebGL3DRenderTarget' // Keep WebGLRenderTarget itself
+                'WebGLShaderStage', 'WebGLCubeRenderTarget', 'WebGLArrayRenderTarget', 'WebGL3DRenderTarget' 
             ]);
             const browserApiExcludes = new Set([
                 'Window', 'Event', 'CustomEvent', 'UIEvent', 'MouseEvent', 'KeyboardEvent', 'TouchEvent', 'PointerEvent',
@@ -218,15 +244,17 @@ async function runWatchdog() {
                 'Headers', 'Request', 'Response', 'Blob', 'ImageData', 'ImageBitmap', 'OffscreenCanvas',
                 'OffscreenCanvasRenderingContext2D', 'CanvasRenderingContext2D', 'CanvasGradient',
                 'AudioContext', 'BaseAudioContext', 'AudioNode', 'AudioParam', 'AudioBuffer', 'AudioDestinationNode', 'GainNode', 
-                'ProgressEvent', 'BroadcastChannel', 'Lock', 'LockManager', 'MediaQueryList', 'Storage'
-                // Add more as needed
+                'ProgressEvent', 'BroadcastChannel', 'Lock', 'LockManager', 'MediaQueryList', 'Storage',
+                'AbortController', 'AbortSignal', 'AudioBufferSourceNode', 'AudioScheduledSourceNode', 'DOMException', 
+                'EventTarget', 'TextDecoder'
             ]);
             const domExcludes = new Set([
                  'Node', 'Element', 'Document', 'CharacterData', 'Text', 'HTMLElement', 'HTMLCollection', 'NodeList', 
                  'DOMRect', 'DOMRectReadOnly', 'DOMStringMap', 'DOMTokenList',
                  'HTMLBodyElement', 'HTMLButtonElement', 'HTMLCanvasElement', 'HTMLDivElement', 'HTMLDocument', 
                  'HTMLHeadElement', 'HTMLHeadingElement', 'HTMLIFrameElement', 'HTMLImageElement', 'HTMLInputElement', 
-                 'HTMLLinkElement', 'HTMLScriptElement', 'HTMLStyleElement' // Common HTML elements
+                 'HTMLLinkElement', 'HTMLScriptElement', 'HTMLStyleElement', 
+                 'CSSStyleDeclaration'
             ]);
             const threeHelpersExclude = new Set([
                 'ArrowHelper', 'AxesHelper', 'BoxHelper', 'Box3Helper', 'CameraHelper', 'DirectionalLightHelper',
@@ -237,9 +265,6 @@ async function runWatchdog() {
                 'AnimationLoader', 'AudioLoader', 'BufferGeometryLoader', 'CompressedTextureLoader', 'CubeTextureLoader',
                 'DataTextureLoader', 'FileLoader', 'ImageLoader', 'ImageBitmapLoader', 'Loader', 'LoaderUtils',
                 'MaterialLoader', 'ObjectLoader', 'TextureLoader', 'GLTFLoader'
-                // GLTF specifics (optional to exclude)
-                // 'GLTFParser', 'GLTFRegistry', 'GLTFBinaryExtension', 'GLTFDracoMeshCompressionExtension', 
-                // 'GLTFLightsExtension', 'GLTFMaterials*Extension', 'GLTFMesh*Extension', 'GLTFTexture*Extension' 
             ]);
             const threeMathExclude = new Set([
                 'Box2', 'Box3', 'Color', 'ColorKeyframeTrack', 'Cylindrical', 'Euler', 'Frustum', 'Interpolant',
@@ -252,35 +277,36 @@ async function runWatchdog() {
                 'EllipseCurve', 'LineCurve', 'LineCurve3', 'Path', 'QuadraticBezierCurve', 'QuadraticBezierCurve3',
                 'Shape', 'ShapePath', 'SplineCurve'
             ]);
-            // Includes TypedArrays themselves and the Three.js BufferAttribute wrappers
             const typedArrayAndAttributesExclude = new Set([
                 'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 
                 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array', 'BigUint64Array',
-                'Float16Array', // If used
+                'Float16Array',
                 'BufferAttribute', 'GLBufferAttribute', 'InstancedBufferAttribute', 'InterleavedBufferAttribute',
                 'Float16BufferAttribute', 'Float32BufferAttribute', 'Float64BufferAttribute',
                 'Int8BufferAttribute', 'Int16BufferAttribute', 'Int32BufferAttribute',
                 'Uint8BufferAttribute', 'Uint16BufferAttribute', 'Uint32BufferAttribute', 'Uint8ClampedBufferAttribute'
             ]);
             const otherLibsExclude = new Set([
-                // Supabase / GoTrue
                 'GoTrueAdminApi', 'GoTrueClient', 'SupabaseAuthClient', 'SupabaseClient', 
                 'AuthApiError', 'AuthError', 'AuthImplicitGrantRedirectError', 'AuthInvalidCredentialsError',
                 'AuthInvalidJwtError', 'AuthInvalidTokenResponseError', 'AuthPKCEGrantCodeExchangeError', 
                 'AuthRetryableFetchError', 'AuthSessionMissingError', 'AuthUnknownError', 'AuthWeakPasswordError',
                 'CustomAuthError',
-                // Postgrest
                 'PostgrestBuilder', 'PostgrestClient', 'PostgrestError', 'PostgrestFilterBuilder', 
                 'PostgrestQueryBuilder', 'PostgrestTransformBuilder',
-                // Storage
                 'StorageApiError', 'StorageBucketApi', 'StorageClient', 'StorageError', 'StorageFileApi', 'StorageUnknownError',
-                // Realtime
                 'RealtimeChannel', 'RealtimeClient', 'RealtimePresence', 'Timer', 'Serializer', 'Push',
-                // Functions
                 'FunctionsClient', 'FunctionsError', 'FunctionsFetchError', 'FunctionsHttpError', 'FunctionsRelayError',
-                // Other potential noise from build/dev tools
                 'Source', 'HttpError', 'Exception', 'Deferred', 'EventEmitter', 'WebSocketClient', 'WSWebSocketDummy',
-                'WebpackLogger', 'clientTapableSyncBailHook' // From previous logs
+                'WebpackLogger', 'clientTapableSyncBailHook', 
+                'CallSite', 'Global', 'Instance', 'Memory', 'Module', 'Table', 'Tag', 'ScriptWrappableTaskState',
+                '_'
+            ]);
+
+            // --- ADD THIS SET for manual exclusions ---
+            const manualMiscExcludes = new Set([
+                'ExampleNoiseConstructor', // Add constructor names here that you want to ignore
+                'AnotherOneToIgnore'
             ]);
 
             try {
@@ -395,7 +421,9 @@ async function runWatchdog() {
                                                 threeCurvesExclude.has(targetConstructorName) ||
                                                 typedArrayAndAttributesExclude.has(targetConstructorName) ||
                                                 otherLibsExclude.has(targetConstructorName) ||
-                                                (targetConstructorName.length <= 2 && targetConstructorName !== '_') ) 
+                                                (targetConstructorName.length <= 2 && targetConstructorName !== '_') || 
+                                                // *** ADD CHECK FOR MANUAL EXCLUDES ***
+                                                manualMiscExcludes.has(targetConstructorName) )
                                             {
                                                 isRelevantConstructor = false;
                                             } 
@@ -404,9 +432,15 @@ async function runWatchdog() {
                                             //     // Consider if we want to exclude these generic patterns too
                                             // }
 
-                                            // --- Increment Count if Relevant --- 
+                                            // --- Categorize and Increment Count --- 
                                             if (isRelevantConstructor) {
-                                                constructorIdentifiedCounts[targetConstructorName] = (constructorIdentifiedCounts[targetConstructorName] || 0) + 1;
+                                                if (knownThreejsTypes.has(targetConstructorName)) {
+                                                    threejsConstructorCounts[targetConstructorName] = (threejsConstructorCounts[targetConstructorName] || 0) + 1;
+                                                } else {
+                                                    // Assumed game-specific if relevant and not Three.js
+                                                    gameConstructorCounts[targetConstructorName] = (gameConstructorCounts[targetConstructorName] || 0) + 1;
+                                                }
+                                                // miscConstructorCounts remains unused for now
                                             }
                                         }
                                     }
@@ -418,23 +452,31 @@ async function runWatchdog() {
                      edgeCursor = currentEdgeEnd; // Ensure cursor is correct after loop
                 }
 
-                // --- Log Constructor Analysis --- 
-                const constructorKeys = Object.keys(constructorIdentifiedCounts);
-                if (constructorKeys.length > 0) {
-                    console.log(`\n--- Constructor Property Analysis (Filtered) ---`);
-                    constructorKeys.sort(); 
-                    constructorKeys.forEach(constructorName => {
-                        if(constructorIdentifiedCounts[constructorName] > 0) {
-                            console.log(`${constructorName}: ${constructorIdentifiedCounts[constructorName]}`);
-                        }                
-                    });
-                    console.log(`--- End Constructor Analysis ---`);
-                }
+                // --- Log Constructor Analysis (Categorized) --- 
+                const logCategory = (title, categoryCounts) => {
+                    const keys = Object.keys(categoryCounts).sort();
+                    if (keys.length > 0) {
+                        console.log(`\n--- ${title} ---`);
+                        keys.forEach(constructorName => {
+                            if (categoryCounts[constructorName] > 0) {
+                                console.log(`${constructorName}: ${categoryCounts[constructorName]}`);
+                            }
+                        });
+                    } 
+                };
+
+                logCategory("Three.js Constructors", threejsConstructorCounts);
+                logCategory("Game Specific Constructors", gameConstructorCounts);
+                // logCategory("Misc/Unknown Constructors", miscConstructorCounts); // Log if/when used
+                console.log(`--- End Constructor Analysis ---`);
 
             } catch (e) {
                 console.error('Error during snapshot analysis:', e.message, e.stack);
-                Object.keys(counts).forEach(key => { counts[key] = 0; }); // Reset node counts on error
-                constructorIdentifiedCounts = {}; // Reset constructor counts too
+                Object.keys(counts).forEach(key => { counts[key] = 0; }); 
+                // Reset categorized counts too
+                threejsConstructorCounts = {}; 
+                gameConstructorCounts = {};
+                miscConstructorCounts = {};
             }
 
             console.log(`Analysis Complete (Node Counts) - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
