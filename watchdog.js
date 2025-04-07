@@ -49,10 +49,33 @@ async function runWatchdog() {
             }
         }
 
-        // Take the initial snapshot
-        await takeSnapshot(cdpSession);
+        // Step 5: Implement Snapshot Interval
+        let previousCounts = null; // To store results from the previous snapshot
 
-        // Keep the browser open for now for subsequent steps
+        console.log(`Setting snapshot interval to ${interval}ms`);
+        const intervalId = setInterval(async () => {
+            console.log('\n--- Interval Start ---');
+            // Step 6: Retrieve snapshot data (placeholder for now)
+            // Step 7: Analyze snapshot (placeholder for now)
+            // const newCounts = await analyzeSnapshot(snapshotData);
+
+            // Call takeSnapshot within the interval
+            await takeSnapshot(cdpSession); // For MVP, we just trigger it
+
+            // Step 8: Comparison Logic (placeholder for now)
+            if (previousCounts) {
+                // Compare newCounts with previousCounts
+                console.log('Comparing with previous snapshot...');
+            }
+            // Update previousCounts (will use actual data later)
+            // previousCounts = newCounts;
+            console.log('--- Interval End ---');
+        }, interval);
+
+        // Keep the browser open while the interval is running
+        // Cleanup logic needs to handle stopping the interval and closing the browser
+
+        // The process will now stay alive due to the interval
         // await browser.close(); // Will be moved to cleanup logic
 
     } catch (error) {
@@ -70,6 +93,7 @@ runWatchdog();
 process.on('SIGINT', async () => {
     console.log('Received SIGINT. Closing browser...');
     // Add cleanup logic here if browser is accessible globally or passed around
+    // Need to clear the interval and close the browser properly
     // For now, we rely on the main function's try/catch, but proper cleanup needed later
     process.exit(0);
 });

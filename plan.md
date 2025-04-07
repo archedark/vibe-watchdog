@@ -51,10 +51,10 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
         [X] **Note:** Retrieving the actual snapshot data is more complex (handled in Step 6). For now, just triggering it is enough to establish the process.
 
 5.  **Implement Snapshot Interval:**
-    [ ] Use `setInterval` within your main async function (after the page loads).
-    [ ] Use the configured snapshot interval (from command-line args or default).
-    [ ] Call the snapshot taking and analysis logic within the interval callback.
-    [ ] Keep track of previous snapshot analysis results (e.g., object counts) in variables accessible within the interval scope.
+    [X] Use `setInterval` within your main async function (after the page loads).
+    [X] Use the configured snapshot interval (from command-line args or default).
+    [X] Call the snapshot taking and analysis logic within the interval callback.
+    [X] Keep track of previous snapshot analysis results (e.g., object counts) in variables accessible within the interval scope.
 
 6.  **Retrieve Snapshot Data:**
     [ ] Modify `takeSnapshot` to handle data retrieval. The snapshot is streamed in chunks.
