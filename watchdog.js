@@ -191,6 +191,11 @@ async function runWatchdog() {
         let previousCounts = analyzeSnapshot(initialSnapshotData);
         console.log('--- Initial Snapshot End ---');
 
+        // State for leak detection heuristic
+        let geometryIncreaseStreak = 0;
+        let materialIncreaseStreak = 0;
+        let textureIncreaseStreak = 0;
+
         // Step 5: Implement Snapshot Interval
         console.log(`\nSetting snapshot interval to ${interval}ms`);
         const intervalId = setInterval(async () => {
@@ -205,12 +210,62 @@ async function runWatchdog() {
                 newCounts = analyzeSnapshot(snapshotDataString);
             }
 
-            // Step 8: Comparison Logic (placeholder for now)
+            // Step 8 & 9: Comparison Logic & Leak Detection Heuristic
             if (previousCounts && newCounts) {
-                // Compare newCounts with previousCounts
-                console.log('Comparing with previous snapshot...');
+                console.log(`[${new Date().toLocaleTimeString()}] Counts - Geo: ${newCounts.geometryCount}, Mat: ${newCounts.materialCount}, Tex: ${newCounts.textureCount}`);
+
+                // Compare Geometry
+                if (newCounts.geometryCount > previousCounts.geometryCount) {
+                    geometryIncreaseStreak++;
+                    console.log(`Geometry count increased (${previousCounts.geometryCount} -> ${newCounts.geometryCount}). Streak: ${geometryIncreaseStreak}`);
+                } else {
+                    if (geometryIncreaseStreak > 0) {
+                        console.log('Geometry count did not increase, resetting streak.');
+                    }
+                    geometryIncreaseStreak = 0;
+                }
+
+                // Compare Materials
+                if (newCounts.materialCount > previousCounts.materialCount) {
+                    materialIncreaseStreak++;
+                    console.log(`Material count increased (${previousCounts.materialCount} -> ${newCounts.materialCount}). Streak: ${materialIncreaseStreak}`);
+                } else {
+                    if (materialIncreaseStreak > 0) {
+                         console.log('Material count did not increase, resetting streak.');
+                    }
+                    materialIncreaseStreak = 0;
+                }
+
+                // Compare Textures
+                if (newCounts.textureCount > previousCounts.textureCount) {
+                    textureIncreaseStreak++;
+                    console.log(`Texture count increased (${previousCounts.textureCount} -> ${newCounts.textureCount}). Streak: ${textureIncreaseStreak}`);
+                } else {
+                     if (textureIncreaseStreak > 0) {
+                         console.log('Texture count did not increase, resetting streak.');
+                    }
+                    textureIncreaseStreak = 0;
+                }
+
+                 // Step 10: Alerting
+                 if (geometryIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential Geometry Leak Detected! Count increased for ${geometryIncreaseStreak} consecutive snapshots. ***`);
+                    // Optional: Reset streak after warning? Or let it keep warning?
+                    // geometryIncreaseStreak = 0; // Uncomment to warn only once per threshold breach
+                 }
+                 if (materialIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential Material Leak Detected! Count increased for ${materialIncreaseStreak} consecutive snapshots. ***`);
+                    // materialIncreaseStreak = 0;
+                 }
+                 if (textureIncreaseStreak >= threshold) {
+                    console.warn(`*** Potential Texture Leak Detected! Count increased for ${textureIncreaseStreak} consecutive snapshots. ***`);
+                    // textureIncreaseStreak = 0;
+                 }
+
             } else if (!newCounts) {
                 console.warn('Skipping comparison due to missing new snapshot data.');
+            } else { // Only previousCounts exists (should only happen on first interval if initial snapshot failed?)
+                console.log(`[${new Date().toLocaleTimeString()}] Initial Counts - Geo: ${previousCounts.geometryCount}, Mat: ${previousCounts.materialCount}, Tex: ${previousCounts.textureCount}`);
             }
             // Update previousCounts for the next interval
             previousCounts = newCounts || previousCounts; // Keep old counts if new analysis failed

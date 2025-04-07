@@ -77,24 +77,24 @@ node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--thresho
         [X] Return an object with counts: `{ geometryCount: count1, materialCount: count2, textureCount: count3 }`
 
 8.  **Comparison Logic:**
-    [ ] In the `setInterval` callback:
-        [ ] Take the new snapshot and analyze it to get `newCounts`.
-        [ ] Compare `newCounts` with `previousCounts` (stored from the last interval).
-        [ ] Update `previousCounts = newCounts`.
+    [X] In the `setInterval` callback:
+        [X] Take the new snapshot and analyze it to get `newCounts`.
+        [X] Compare `newCounts` with `previousCounts` (stored from the last interval).
+        [X] Update `previousCounts = newCounts`.
 
 9.  **Basic Leak Detection Heuristic:**
-    [ ] Maintain state variables (e.g., `geometryIncreaseStreak = 0`).
-    [ ] If `newCounts.geometryCount > previousCounts.geometryCount`, increment the streak.
-    [ ] If `newCounts.geometryCount <= previousCounts.geometryCount`, reset the streak to 0.
-    [ ] If `geometryIncreaseStreak` reaches the configured threshold (from command-line args or default), trigger an alert.
-    [ ] Apply similar logic for materials, textures.
+    [X] Maintain state variables (e.g., `geometryIncreaseStreak = 0`).
+    [X] If `newCounts.geometryCount > previousCounts.geometryCount`, increment the streak.
+    [X] If `newCounts.geometryCount <= previousCounts.geometryCount`, reset the streak to 0.
+    [X] If `geometryIncreaseStreak` reaches the configured threshold (from command-line args or default), trigger an alert.
+    [X] Apply similar logic for materials, textures.
 
 10. **Console Output & Alerting:**
-    [ ] After each snapshot is analyzed (in the `setInterval` callback), log the counts: `console.log(\`[${new Date().toLocaleTimeString()}] Snapshot: Geometries: ${newCounts.geometryCount}, Materials: ${newCounts.materialCount}, Textures: ${newCounts.textureCount}\`);`
-    [ ] When the heuristic threshold is met, print a warning to the Node.js console: `console.warn(\`Potential Geometry Leak Detected! Count increased for ${config.threshold} consecutive snapshots.\`);` (Adapt for other types).
+    [X] After each snapshot is analyzed (in the `setInterval` callback), log the counts: `console.log(\`[${new Date().toLocaleTimeString()}] Snapshot: Geometries: ${newCounts.geometryCount}, Materials: ${newCounts.materialCount}, Textures: ${newCounts.textureCount}\`);`
+    [X] When the heuristic threshold is met, print a warning to the Node.js console: `console.warn(\`Potential Geometry Leak Detected! Count increased for ${config.threshold} consecutive snapshots.\`);` (Adapt for other types).
 
 11. **Cleanup:**
-    [ ] Ensure the browser is closed (`browser.close()`) when the script exits or is interrupted (e.g., using `process.on('SIGINT', ...)`).
+    [X] Ensure the browser is closed (`browser.close()`) when the script exits or is interrupted (e.g., using `process.on('SIGINT', ...)`).
     [ ] Create a basic `README.md` explaining the usage described above.
 
 **Next Steps (Post-MVP):**
