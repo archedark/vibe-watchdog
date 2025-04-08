@@ -62,6 +62,9 @@ async function runWatchdog() {
         res.sendFile(path.join(__dirname, 'report-viewer.html'));
     });
 
+    // --- Serve static assets (like the logo) ---
+    app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
     // Function to extract timestamp from filename (consistent with manageReports)
     function getTimestampFromFilename(filename) {
         // filename format: report-YYYY-MM-DDTHH-MM-SSZ.json

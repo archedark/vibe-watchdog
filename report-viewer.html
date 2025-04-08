@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Watchdog Report Viewer</title>
+    <title>Vibe Watchdog</title>
     <!-- Add Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Add Choices.js CDN -->
@@ -17,8 +17,19 @@
             font-size: 14px; /* Base font size */
         }
         h1 {
+            /* Remove default h1 styles if needed, or repurpose */
+            /* text-align: center; */
+            /* color: #333; */
+        }
+        /* Style for Logo */
+        .logo-container {
             text-align: center;
-            color: #333;
+            margin: 10px 0 20px 0; /* Adjust margin as needed */
+        }
+        .logo-container img {
+            max-width: 80%; /* Prevent logo from being too wide */
+            max-height: 128px; /* Adjusted max height (80px * 1.6) */
+            height: auto; /* Maintain aspect ratio */
         }
         .tab-container {
             overflow: hidden;
@@ -199,7 +210,11 @@
 </head>
 <body>
 
-    <h1>Vibe Watchdog</h1>
+    <!-- Replace H1 with Logo -->
+    <div class="logo-container">
+        <img src="assets/vibe_watchdog_logo.png" alt="Vibe Watchdog Logo">
+    </div>
+    <!-- <h1>Vibe Watchdog</h1> -->
 
     <!-- Add Canvas for Chart -->
     <div id="chartContainer">
