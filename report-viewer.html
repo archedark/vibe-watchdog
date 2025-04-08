@@ -9,59 +9,88 @@
             font-family: sans-serif;
             margin: 20px;
             background-color: #f4f4f4;
+            font-size: 14px; /* Base font size */
         }
         h1 {
             text-align: center;
             color: #333;
         }
-        #reportInputLabel {
-            display: block;
-            margin: 20px auto;
-            padding: 10px 15px;
-            background-color: #007bff;
-            color: white;
+        .tab-container {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+            margin-bottom: 10px;
+        }
+        .tab-container button {
+            background-color: inherit;
+            float: left;
             border: none;
-            border-radius: 5px;
+            outline: none;
             cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 1em; /* Relative font size */
+        }
+        .tab-container button:hover {
+            background-color: #ddd;
+        }
+        .tab-container button.active {
+            background-color: #ccc;
+        }
+        .tab-content {
+            display: none; /* Hide tabs by default */
+            padding: 15px 12px;
+            border: 1px solid #ccc;
+            border-top: none;
+            background-color: #fff;
+            overflow-x: auto; /* Allow horizontal scrolling for tables */
+        }
+        #status {
             text-align: center;
-            width: 200px;
-        }
-        #reportInputLabel:hover {
-            background-color: #0056b3;
-        }
-        #reportFolderInput {
-            display: none; /* Hide the actual input */
+            margin: 15px 0;
+            color: #555;
         }
         table {
             width: 100%;
+            min-width: 600px; /* Minimum width to encourage scrolling */
             border-collapse: collapse;
-            margin-top: 20px;
+            margin-top: 10px;
             background-color: #fff;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            font-size: 0.9em; /* Smaller font for table data */
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 10px;
+            padding: 8px 10px; /* Adjust padding */
             text-align: left;
-            vertical-align: top; /* Align content top for preformatted text */
+            white-space: nowrap; /* Prevent wrapping in cells */
         }
         th {
             background-color: #e9e9e9;
             font-weight: bold;
+            position: sticky; /* Make header sticky */
+            top: 0;
+            z-index: 1;
         }
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
+        /* Style first column (row headers) */
+        td:first-child, th:first-child {
+             position: sticky;
+             left: 0;
+             background-color: #f2f2f2; /* Slightly different background */
+             z-index: 2; /* Above sticky header */
+            font-weight: bold;
         }
-        pre {
-            white-space: pre-wrap; /* Allow wrapping */
-            word-wrap: break-word; /* Break long words */
-            margin: 0;
-            font-size: 0.9em;
+        th:first-child {
+            z-index: 3; /* Above sticky header and row headers */
         }
-        #status {
-            text-align: center;
-            margin-top: 15px;
-            color: #555;
+        /* Handle positive/negative deltas */
+        td.delta-positive {
+            color: green;
+            font-weight: bold;
+        }
+        td.delta-negative {
+            color: red;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -69,119 +98,270 @@
 
     <h1>Watchdog Report Viewer</h1>
 
-    <!-- Remove file input -->
-    <!-- <label for="reportFolderInput" id="reportInputLabel">Select Reports Directory</label> -->
-    <!-- <input type="file" id="reportFolderInput" webkitdirectory directory multiple style="display: none;" /> -->
+    <div id="status">Loading reports...</div>
 
-    <button id="loadReportsButton">Load Reports</button>
+    <!-- Tab Links -->
+    <div class="tab-container">
+        <button class="tab-link active" onclick="openTab(event, 'gameConstructorsTab')">Your Code Objects</button>
+        <button class="tab-link" onclick="openTab(event, 'threeConstructorsTab')">Engine Objects</button>
+        <button class="tab-link" onclick="openTab(event, 'nodeCountsTab')">Basic Counts</button>
+    </div>
 
-    <div id="status">Click the button to load reports from the server.</div>
-    <div id="reportTableContainer"></div>
+    <!-- Tab Content -->
+    <div id="gameConstructorsTab" class="tab-content" style="display: block;">
+        <h2>Your Code Objects (Count & Change)</h2>
+        <div id="gameConstructorsTableContainer"></div>
+    </div>
+
+    <div id="threeConstructorsTab" class="tab-content">
+        <h2>Engine Objects (Count & Change)</h2>
+        <div id="threeConstructorsTableContainer"></div>
+    </div>
+
+    <div id="nodeCountsTab" class="tab-content">
+        <h2>Basic Counts (Count & Change)</h2>
+        <div id="nodeCountsTableContainer"></div>
+    </div>
 
     <script>
-        // const folderInput = document.getElementById('reportFolderInput'); // Removed
-        const loadButton = document.getElementById('loadReportsButton');
-        const tableContainer = document.getElementById('reportTableContainer');
         const statusDiv = document.getElementById('status');
+        const nodeCountsTableContainer = document.getElementById('nodeCountsTableContainer');
+        const threeConstructorsTableContainer = document.getElementById('threeConstructorsTableContainer');
+        const gameConstructorsTableContainer = document.getElementById('gameConstructorsTableContainer');
 
-        // folderInput.addEventListener('change', handleFiles); // Removed
-        loadButton.addEventListener('click', loadReportData);
+        let processedData = {
+            timestamps: [],
+            nodeCounts: {},
+            nodeDeltas: {},
+            threejsCounts: {},
+            threejsDeltas: {},
+            gameCounts: {},
+            gameDeltas: {}
+        };
 
-        // --- Function to fetch and process the single JSON file ---
+        function openTab(evt, tabName) {
+            let i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            tablinks = document.getElementsByClassName("tab-link");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        // --- Fetch and Process Data ---
         async function loadReportData() {
             statusDiv.textContent = 'Loading reports from the server...';
-            tableContainer.innerHTML = ''; // Clear previous table
-            loadButton.disabled = true; // Prevent multiple clicks
+            nodeCountsTableContainer.innerHTML = '';
+            threeConstructorsTableContainer.innerHTML = '';
+            gameConstructorsTableContainer.innerHTML = '';
 
             try {
-                const response = await fetch('/api/reports'); // Fetch from the API endpoint
+                const response = await fetch('/api/reports');
                 if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status} - Could not fetch /api/reports. Make sure the watchdog server is running.`);
+                    throw new Error(`HTTP error! Status: ${response.status} - Could not fetch /api/reports.`);
                 }
-                const reports = await response.json();
+                const reports = await response.json(); // Already sorted newest first by server
 
                 if (!Array.isArray(reports)) {
-                     throw new Error('/api/reports did not return a valid JSON array.');
+                    throw new Error('/api/reports did not return a valid JSON array.');
                 }
-
                 if (reports.length === 0) {
-                    statusDiv.textContent = '/api/reports returned an empty array. No reports found in the reports directory?';
-                    loadButton.disabled = false;
+                    statusDiv.textContent = 'No reports found.';
                     return;
                 }
 
-                // Data is already sorted by the server (newest first)
-                renderTable(reports);
+                // Reverse reports to process oldest first for easier table building
+                reports.reverse();
+
+                processReportsForTables(reports);
+
+                renderNodeCountsTable();
+                renderConstructorTable('threejs', threeConstructorsTableContainer);
+                renderConstructorTable('game', gameConstructorsTableContainer);
+
                 statusDiv.textContent = `Loaded ${reports.length} reports.`;
 
             } catch (error) {
                 console.error('Error loading or processing report data:', error);
-                statusDiv.textContent = `Error: ${error.message}`; // Display user-friendly error
-                tableContainer.innerHTML = ''; // Clear table on error
-            } finally {
-                loadButton.disabled = false; // Re-enable button
+                statusDiv.textContent = `Error: ${error.message}`;
             }
         }
 
-        // --- REMOVE handleFiles function --- 
-        /* function handleFiles(event) { ... } */
+        // --- Data Transformation ---
+        function processReportsForTables(reports) {
+            const timestamps = [];
+            const nodeCountsData = {}; // Key: countType, Value: array of counts per timestamp
+            const nodeDeltasData = {}; // Store node deltas here
+            const threejsDeltasData = {}; // Key: constructorName, Value: array of deltas per timestamp
+            const gameDeltasData = {}; // Key: constructorName, Value: array of deltas per timestamp
 
-        // --- REMOVE parseTimestampFromFilename function --- (Timestamp is in data now)
-        /* function parseTimestampFromFilename(filename) { ... } */
+            // Collect all keys across all reports first
+            const allNodeCountKeys = new Set();
+            const allThreejsKeys = new Set();
+            const allGameKeys = new Set();
 
-        function renderTable(reports) {
-            if (!reports || reports.length === 0) { // Added check for !reports
-                tableContainer.innerHTML = '<p>No valid reports to display.</p>';
+            reports.forEach(report => {
+                if (report.nodeCounts) {
+                    Object.keys(report.nodeCounts).forEach(key => allNodeCountKeys.add(key));
+                }
+                if (report.constructorCounts?.threejs) {
+                    Object.keys(report.constructorCounts.threejs).forEach(key => allThreejsKeys.add(key));
+                }
+                if (report.constructorCountsDelta?.threejs) {
+                    Object.keys(report.constructorCountsDelta.threejs).forEach(key => allThreejsKeys.add(key));
+                }
+                 if (report.constructorCounts?.game) {
+                    Object.keys(report.constructorCounts.game).forEach(key => allGameKeys.add(key));
+                }
+                if (report.constructorCountsDelta?.game) {
+                    Object.keys(report.constructorCountsDelta.game).forEach(key => allGameKeys.add(key));
+                }
+            });
+
+            // Initialize data structures
+            allNodeCountKeys.forEach(key => {
+                nodeCountsData[key] = [];
+                nodeDeltasData[key] = [];
+            });
+            const threejsCountsData = {};
+            const gameCountsData = {};
+            allThreejsKeys.forEach(key => {
+                threejsCountsData[key] = [];
+                threejsDeltasData[key] = [];
+            });
+            allGameKeys.forEach(key => {
+                gameCountsData[key] = [];
+                gameDeltasData[key] = [];
+            });
+
+            // Populate data
+            reports.forEach((report, reportIndex) => {
+                const timestamp = new Date(report.timestamp).toLocaleString();
+                timestamps.push(timestamp);
+
+                // Node Counts and Deltas
+                allNodeCountKeys.forEach(key => {
+                    const count = report.nodeCounts?.[key] ?? 0;
+                    nodeCountsData[key].push(count);
+
+                    let delta = 0;
+                    if (reportIndex > 0) {
+                        const prevCount = nodeCountsData[key][reportIndex - 1] ?? 0;
+                        if (typeof count === 'number' && typeof prevCount === 'number') {
+                           delta = count - prevCount;
+                        } else {
+                           console.warn(`Non-numeric count encountered for ${key} at index ${reportIndex}`);
+                        }
+                    }
+                    nodeDeltasData[key].push(delta);
+                });
+
+                // Three.js Counts and Deltas
+                allThreejsKeys.forEach(key => {
+                    const count = report.constructorCounts?.threejs?.[key] ?? 0;
+                    const delta = report.constructorCountsDelta?.threejs?.[key] ?? 0;
+                    threejsCountsData[key].push(count);
+                    threejsDeltasData[key].push(delta);
+                });
+
+                 // Game Counts and Deltas
+                allGameKeys.forEach(key => {
+                    const count = report.constructorCounts?.game?.[key] ?? 0;
+                    const delta = report.constructorCountsDelta?.game?.[key] ?? 0;
+                    gameCountsData[key].push(count);
+                    gameDeltasData[key].push(delta);
+                });
+            });
+
+            processedData = {
+                timestamps,
+                nodeCounts: nodeCountsData,
+                nodeDeltas: nodeDeltasData,
+                threejsCounts: threejsCountsData,
+                threejsDeltas: threejsDeltasData,
+                gameCounts: gameCountsData,
+                gameDeltas: gameDeltasData
+            };
+        }
+
+        // --- Rendering Functions ---
+
+        function renderNodeCountsTable() {
+            const { timestamps, nodeCounts, nodeDeltas } = processedData;
+            if (timestamps.length === 0 || Object.keys(nodeCounts).length === 0) {
+                nodeCountsTableContainer.innerHTML = '<p>No node count data available.</p>';
                 return;
             }
 
-            let tableHTML = '<table><thead><tr>';
-            tableHTML += '<th>Timestamp</th>';
-            // Assuming structure from watchdog.js: data.nodeCounts exists in the first report entry
-            if (reports[0]?.nodeCounts) {
-                Object.keys(reports[0].nodeCounts).forEach(key => {
-                     // Simple capitalization for header
-                     const header = key.replace('Count', ' Count');
-                     tableHTML += `<th>${header.charAt(0).toUpperCase() + header.slice(1)}</th>`;
-                });
-            }
-            tableHTML += '<th>Constructor Deltas (Three.js)</th>';
-            tableHTML += '<th>Constructor Deltas (Game)</th>';
+            let tableHTML = '<table><thead><tr><th>Count Type</th>';
+            timestamps.forEach(ts => tableHTML += `<th>${ts}</th>`);
             tableHTML += '</tr></thead><tbody>';
 
-            reports.forEach(report => {
-                tableHTML += '<tr>';
-                // Format timestamp for display - use report.timestamp directly
-                const displayTimestamp = report.timestamp ? new Date(report.timestamp).toLocaleString() : 'Invalid Date';
-                // Maybe add filename if needed later, but timestamp is the key now
-                tableHTML += `<td>${displayTimestamp}</td>`; 
+            // Sort keys for consistent row order
+            const sortedKeys = Object.keys(nodeCounts).sort();
 
-                // Node Counts - access directly from report object
-                const nodeCounts = report.nodeCounts || {};
-                if (reports[0]?.nodeCounts) { // Use first report's keys as template
-                    Object.keys(reports[0].nodeCounts).forEach(key => {
-                         tableHTML += `<td>${nodeCounts[key] !== undefined ? nodeCounts[key] : 'N/A'}</td>`;
-                    });
+            sortedKeys.forEach(key => {
+                     const header = key.replace('Count', ' Count');
+                 tableHTML += `<tr><td>${header.charAt(0).toUpperCase() + header.slice(1)}</td>`;
+                 for (let i = 0; i < timestamps.length; i++) {
+                    const count = nodeCounts[key][i];
+                    const delta = nodeDeltas[key][i];
+                    let cellClass = '';
+                    if (delta > 0) cellClass = 'delta-positive';
+                    if (delta < 0) cellClass = 'delta-negative';
+                    // Only show delta if non-zero
+                    const deltaString = delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : '';
+                    tableHTML += `<td class="${cellClass}">${count}${deltaString}</td>`;
+                 }
+                 tableHTML += '</tr>';
+            });
+
+            tableHTML += '</tbody></table>';
+            nodeCountsTableContainer.innerHTML = tableHTML;
+        }
+
+        function renderConstructorTable(type, container) {
+            const { timestamps } = processedData;
+            const constructorCounts = (type === 'threejs') ? processedData.threejsCounts : processedData.gameCounts;
+            const constructorDeltas = (type === 'threejs') ? processedData.threejsDeltas : processedData.gameDeltas;
+
+            if (timestamps.length === 0 || Object.keys(constructorCounts).length === 0) {
+                container.innerHTML = `<p>No ${type} constructor data available.</p>`;
+                return;
+            }
+
+            let tableHTML = '<table><thead><tr><th>Constructor Name</th>';
+            timestamps.forEach(ts => tableHTML += `<th>${ts}</th>`);
+            tableHTML += '</tr></thead><tbody>';
+
+            // Sort keys for consistent row order
+            const sortedKeys = Object.keys(constructorCounts).sort();
+
+            sortedKeys.forEach(key => {
+                tableHTML += `<tr><td>${key}</td>`;
+                for (let i = 0; i < timestamps.length; i++) {
+                    const count = constructorCounts[key][i];
+                    const delta = constructorDeltas[key][i];
+                    let cellClass = '';
+                    if (delta > 0) cellClass = 'delta-positive';
+                    if (delta < 0) cellClass = 'delta-negative';
+                    // Only show delta if non-zero
+                    const deltaString = delta !== 0 ? ` (${delta > 0 ? '+' : ''}${delta})` : '';
+                    tableHTML += `<td class="${cellClass}">${count}${deltaString}</td>`;
                 }
-
-                // Constructor Deltas - access directly from report object
-                const deltas = report.constructorCountsDelta || {};
-                const threejsDeltas = deltas.threejs || {};
-                const gameDeltas = deltas.game || {};
-                // const miscDeltas = deltas.misc || {}; // Add if needed
-
-                // Format deltas nicely using <pre>
-                tableHTML += `<td><pre>${JSON.stringify(threejsDeltas, null, 2)}</pre></td>`;
-                tableHTML += `<td><pre>${JSON.stringify(gameDeltas, null, 2)}</pre></td>`;
-
                 tableHTML += '</tr>';
             });
 
             tableHTML += '</tbody></table>';
-            tableContainer.innerHTML = tableHTML;
+            container.innerHTML = tableHTML;
         }
 
-        // Optional: Automatically load reports when the page loads
+        // --- Initial Load ---
         document.addEventListener('DOMContentLoaded', loadReportData);
 
     </script>
