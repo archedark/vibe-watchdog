@@ -1,16 +1,40 @@
 const puppeteer = require('puppeteer');
 const minimist = require('minimist');
+const fs = require('fs').promises; // Added for file system operations
+const path = require('path'); // Added for path manipulation
 
 const args = minimist(process.argv.slice(2));
+
+// --- Add Help Function ---
+function showHelp() {
+    console.log(`
+Usage: node watchdog.js --url <your-game-url> [options]
+
+Options:
+  --url <url>          REQUIRED: The URL of the web page/game to monitor.
+  --headless           Run Puppeteer in headless mode (no visible browser window). Default: false.
+  --interval <ms>      The interval (in milliseconds) between heap snapshots. Default: 30000 (30 seconds).
+  --threshold <count>  The number of consecutive increases in a resource count to trigger a potential leak warning. Default: 3.
+  --max-reports <num>  The maximum number of JSON reports to keep in the reports directory. Default: 10.
+  --help               Show this help message and exit.
+    `);
+    process.exit(0);
+}
+
+if (args.help) {
+    showHelp();
+}
+// --- End Help Function ---
 
 const targetUrl = args.url;
 const isHeadless = args.headless || false; // Default to false (visible browser)
 const interval = args.interval || 30000; // Default to 30 seconds
 const threshold = args.threshold || 3; // Default to 3 consecutive increases
+const maxReports = args['max-reports'] || 10; // Default to 10 reports
 
 if (!targetUrl) {
     console.error('Error: --url parameter is required.');
-    console.log('Usage: node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--threshold <count>]');
+    console.log('Usage: node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--threshold <count>] [--max-reports <num>]');
     process.exit(1);
 }
 
@@ -19,10 +43,16 @@ async function runWatchdog() {
     console.log(`Headless mode: ${isHeadless}`);
     console.log(`Snapshot interval: ${interval}ms`);
     console.log(`Leak threshold: ${threshold} increases`);
+    console.log(`Maximum reports to keep: ${maxReports}`); // Log the max reports value
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
+
+    const reportsDir = path.join(__dirname, 'reports'); // Define reports directory
 
     let browser;
     try {
+        await fs.mkdir(reportsDir, { recursive: true }); // Create reports directory if it doesn't exist
+        console.log(`Reports will be saved to: ${reportsDir}`);
+
         browser = await puppeteer.launch({ headless: isHeadless });
         const page = await browser.newPage();
 
@@ -479,13 +509,89 @@ async function runWatchdog() {
             }
 
             console.log(`Analysis Complete (Node Counts) - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
-            return counts;
+            return { nodeCounts: counts, constructorCounts: { threejs: threejsConstructorCounts, game: gameConstructorCounts, misc: miscConstructorCounts } };
+        }
+
+        // --- ADD manageReports function ---
+        async function manageReports(dir, maxReportsToKeep) {
+            try {
+                const files = await fs.readdir(dir);
+                const reportFiles = files
+                    .filter(f => f.startsWith('report-') && f.endsWith('.json'))
+                    .map(f => ({
+                        name: f,
+                        // Extract timestamp reliably (assuming ISO format YYYY-MM-DDTHH-MM-SS.mmmZ)
+                        time: new Date(f.substring(7, f.length - 5).replace(/-/g, ':').replace('T', ' ').replace('Z', '')).getTime() 
+                    }))
+                    .sort((a, b) => a.time - b.time); // Sort oldest first
+
+                if (reportFiles.length > maxReportsToKeep) {
+                    const filesToDelete = reportFiles.slice(0, reportFiles.length - maxReportsToKeep);
+                    console.log(`Rotating reports: Keeping ${maxReportsToKeep}, removing ${filesToDelete.length} oldest reports.`);
+                    for (const file of filesToDelete) {
+                        try {
+                            await fs.unlink(path.join(dir, file.name));
+                            // console.log(`Deleted old report: ${file.name}`);
+                        } catch (delErr) {
+                            console.warn(`Failed to delete old report ${file.name}:`, delErr.message);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error managing reports:', err.message);
+            }
+        }
+
+        // --- ADD calculateConstructorDelta function ---
+        function calculateConstructorDelta(current, previous) {
+            const delta = { threejs: {}, game: {}, misc: {} };
+            const categories = ['threejs', 'game', 'misc'];
+
+            for (const category of categories) {
+                const currentCounts = current?.[category] || {};
+                const previousCounts = previous?.[category] || {};
+                const allKeys = new Set([...Object.keys(currentCounts), ...Object.keys(previousCounts)]);
+
+                for (const key of allKeys) {
+                    const currentVal = currentCounts[key] || 0;
+                    const previousVal = previousCounts[key] || 0;
+                    const diff = currentVal - previousVal;
+                    // Only include constructors present in current or previous, and where delta is non-zero
+                    if (diff !== 0 || currentVal > 0) { 
+                        delta[category][key] = diff;
+                    }
+                }
+            }
+            return delta;
+        }
+
+        // --- ADD saveReport function ---
+        async function saveReport(dir, reportData) {
+            const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '') + 'Z'; // Format: YYYY-MM-DDTHH-MM-SSZ
+            const filename = `report-${timestamp}.json`;
+            const filepath = path.join(dir, filename);
+
+            try {
+                await fs.writeFile(filepath, JSON.stringify(reportData, null, 2));
+                console.log(`Report saved: ${filename}`);
+                await manageReports(dir, maxReports); // Pass the configured maxReports value
+            } catch (err) {
+                console.error(`Error saving report ${filename}:`, err.message);
+            }
         }
 
         // Take Initial Snapshot & Analysis
         console.log('\n--- Initial Snapshot ---');
         const initialSnapshotData = await takeSnapshot(cdpSession);
-        let previousCounts = analyzeSnapshot(initialSnapshotData);
+        let initialAnalysisResult = analyzeSnapshot(initialSnapshotData);
+        // For the first report, delta is the counts themselves
+        const initialReportData = {
+            nodeCounts: initialAnalysisResult.nodeCounts,
+            constructorCounts: initialAnalysisResult.constructorCounts,
+            constructorCountsDelta: calculateConstructorDelta(initialAnalysisResult.constructorCounts, null) // Delta is initial count
+        };
+        await saveReport(reportsDir, initialReportData); // Save initial report with delta
+        let previousAnalysisResult = initialAnalysisResult; // Use the full result object from analyzeSnapshot
         console.log('--- Initial Snapshot End ---');
 
         // State for leak detection heuristic
@@ -503,22 +609,42 @@ async function runWatchdog() {
             // Step 6: Retrieve snapshot data
             const snapshotDataString = await takeSnapshot(cdpSession);
 
-            let newCounts = null;
+            let currentAnalysisResult = null;
+            let reportData = null; // Initialize reportData
+
             if (snapshotDataString) {
                 console.log(`Received snapshot data: ${Math.round(snapshotDataString.length / 1024)} KB`);
                 // Step 7: Analyze snapshot
-                newCounts = analyzeSnapshot(snapshotDataString);
+                currentAnalysisResult = analyzeSnapshot(snapshotDataString);
+
+                // Calculate Delta
+                const delta = calculateConstructorDelta(
+                    currentAnalysisResult.constructorCounts,
+                    previousAnalysisResult?.constructorCounts // Pass previous counts safely
+                );
+
+                // Prepare data for the report
+                reportData = {
+                    nodeCounts: currentAnalysisResult.nodeCounts,
+                    constructorCounts: currentAnalysisResult.constructorCounts,
+                    constructorCountsDelta: delta
+                };
+
+                await saveReport(reportsDir, reportData); // Save interval report with delta
             }
 
             // Step 8 & 9: Comparison Logic & Leak Detection Heuristic
-            if (previousCounts && newCounts) {
+            if (previousAnalysisResult?.nodeCounts && currentAnalysisResult?.nodeCounts) {
+                const prevCounts = previousAnalysisResult.nodeCounts;
+                const newCounts = currentAnalysisResult.nodeCounts; // Use nodeCounts property
+
                 // Step 10: Log current counts
                 console.log(`[${new Date().toLocaleTimeString()}] Counts - Geo: ${newCounts.geometryCount}, Mat: ${newCounts.materialCount}, Tex: ${newCounts.textureCount}, RT: ${newCounts.renderTargetCount}, Mesh: ${newCounts.meshCount}, Grp: ${newCounts.groupCount}`);
 
                 // Compare Geometry
-                if (newCounts.geometryCount > previousCounts.geometryCount) {
+                if (newCounts.geometryCount > prevCounts.geometryCount) {
                     geometryIncreaseStreak++;
-                    console.log(`Geometry count increased (${previousCounts.geometryCount} -> ${newCounts.geometryCount}). Streak: ${geometryIncreaseStreak}`);
+                    console.log(`Geometry count increased (${prevCounts.geometryCount} -> ${newCounts.geometryCount}). Streak: ${geometryIncreaseStreak}`);
                 } else {
                     if (geometryIncreaseStreak > 0) {
                         console.log('Geometry count did not increase, resetting streak.');
@@ -527,9 +653,9 @@ async function runWatchdog() {
                 }
 
                 // Compare Materials
-                if (newCounts.materialCount > previousCounts.materialCount) {
+                if (newCounts.materialCount > prevCounts.materialCount) {
                     materialIncreaseStreak++;
-                    console.log(`Material count increased (${previousCounts.materialCount} -> ${newCounts.materialCount}). Streak: ${materialIncreaseStreak}`);
+                    console.log(`Material count increased (${prevCounts.materialCount} -> ${newCounts.materialCount}). Streak: ${materialIncreaseStreak}`);
                 } else {
                     if (materialIncreaseStreak > 0) {
                          console.log('Material count did not increase, resetting streak.');
@@ -538,9 +664,9 @@ async function runWatchdog() {
                 }
 
                 // Compare Textures
-                if (newCounts.textureCount > previousCounts.textureCount) {
+                if (newCounts.textureCount > prevCounts.textureCount) {
                     textureIncreaseStreak++;
-                    console.log(`Texture count increased (${previousCounts.textureCount} -> ${newCounts.textureCount}). Streak: ${textureIncreaseStreak}`);
+                    console.log(`Texture count increased (${prevCounts.textureCount} -> ${newCounts.textureCount}). Streak: ${textureIncreaseStreak}`);
                 } else {
                      if (textureIncreaseStreak > 0) {
                          console.log('Texture count did not increase, resetting streak.');
@@ -549,9 +675,9 @@ async function runWatchdog() {
                 }
 
                 // Compare Render Targets
-                if (newCounts.renderTargetCount > previousCounts.renderTargetCount) {
+                if (newCounts.renderTargetCount > prevCounts.renderTargetCount) {
                     renderTargetIncreaseStreak++;
-                    console.log(`RenderTarget count increased (${previousCounts.renderTargetCount} -> ${newCounts.renderTargetCount}). Streak: ${renderTargetIncreaseStreak}`);
+                    console.log(`RenderTarget count increased (${prevCounts.renderTargetCount} -> ${newCounts.renderTargetCount}). Streak: ${renderTargetIncreaseStreak}`);
                 } else {
                     if (renderTargetIncreaseStreak > 0) {
                         console.log('RenderTarget count did not increase, resetting streak.');
@@ -560,9 +686,9 @@ async function runWatchdog() {
                 }
 
                 // Compare Meshes
-                if (newCounts.meshCount > previousCounts.meshCount) {
+                if (newCounts.meshCount > prevCounts.meshCount) {
                     meshIncreaseStreak++;
-                    console.log(`Mesh count increased (${previousCounts.meshCount} -> ${newCounts.meshCount}). Streak: ${meshIncreaseStreak}`);
+                    console.log(`Mesh count increased (${prevCounts.meshCount} -> ${newCounts.meshCount}). Streak: ${meshIncreaseStreak}`);
                 } else {
                      if (meshIncreaseStreak > 0) {
                         console.log('Mesh count did not increase, resetting streak.');
@@ -571,9 +697,9 @@ async function runWatchdog() {
                 }
 
                 // Compare Groups
-                if (newCounts.groupCount > previousCounts.groupCount) {
+                if (newCounts.groupCount > prevCounts.groupCount) {
                     groupIncreaseStreak++;
-                    console.log(`Group count increased (${previousCounts.groupCount} -> ${newCounts.groupCount}). Streak: ${groupIncreaseStreak}`);
+                    console.log(`Group count increased (${prevCounts.groupCount} -> ${newCounts.groupCount}). Streak: ${groupIncreaseStreak}`);
                 } else {
                      if (groupIncreaseStreak > 0) {
                          console.log('Group count did not increase, resetting streak.');
@@ -609,13 +735,14 @@ async function runWatchdog() {
                     // groupIncreaseStreak = 0;
                 }
 
-            } else if (!newCounts) {
+            } else if (!currentAnalysisResult) {
                 console.warn('Skipping comparison due to missing new snapshot data.');
-            } else { // Only previousCounts exists (first interval after successful initial snapshot)
-                console.log(`[${new Date().toLocaleTimeString()}] Initial Counts - Geo: ${previousCounts.geometryCount}, Mat: ${previousCounts.materialCount}, Tex: ${previousCounts.textureCount}, RT: ${previousCounts.renderTargetCount}, Mesh: ${previousCounts.meshCount}, Grp: ${previousCounts.groupCount}`); // Added new types
+            } else { // Only previousAnalysisResult exists (first interval after successful initial snapshot)
+                const prevCounts = previousAnalysisResult.nodeCounts; // Use nodeCounts
+                console.log(`[${new Date().toLocaleTimeString()}] Initial Counts - Geo: ${prevCounts.geometryCount}, Mat: ${prevCounts.materialCount}, Tex: ${prevCounts.textureCount}, RT: ${prevCounts.renderTargetCount}, Mesh: ${prevCounts.meshCount}, Grp: ${prevCounts.groupCount}`); // Added new types
             }
-            // Update previousCounts for the next interval
-            previousCounts = newCounts || previousCounts; // Keep old counts if new analysis failed
+            // Update previousAnalysisResult for the next interval
+            previousAnalysisResult = currentAnalysisResult || previousAnalysisResult; 
             console.log('--- Interval End ---');
         }, interval);
 
