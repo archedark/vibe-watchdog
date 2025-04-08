@@ -90,7 +90,7 @@ We built this tool with vibe coders in mind, and your feedback is invaluable. Ha
 
 - Create a [GitHub Issue](https://github.com/your-username/vibe-watchdog/issues)
 - Contribute with pull requests
-- Say hi on X @[archedark_](https://x.com/archedark_)
+- Say hi on X [@archedark_](https://x.com/archedark_)
 
 ---
 
