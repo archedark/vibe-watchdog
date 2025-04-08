@@ -18,6 +18,7 @@ Options:
   --threshold <count>  The number of consecutive increases in a resource count to trigger a potential leak warning. Default: 3.
   --max-reports <num>  The maximum number of JSON reports to keep in the reports directory. Default: 10.
   --port <num>         The port number for the report viewer web server. Default: 3000.
+  --clear-reports      Delete all existing reports in the 'reports' directory before starting. Default: false.
   --help               Show this help message and exit.
     `);
     process.exit(0);
@@ -117,6 +118,37 @@ async function runWatchdog() {
 
 
     try {
+        // --- Clear Reports Logic ---
+        if (args['clear-reports']) {
+            console.log('--clear-reports flag detected. Removing existing reports...');
+            try {
+                const files = await fs.readdir(reportsDir);
+                const reportFiles = files.filter(f => f.startsWith('report-') && f.endsWith('.json'));
+                if (reportFiles.length > 0) {
+                    let deletedCount = 0;
+                    for (const file of reportFiles) {
+                        try {
+                            await fs.unlink(path.join(reportsDir, file));
+                            deletedCount++;
+                        } catch (delErr) {
+                            console.warn(`  - Failed to delete report ${file}:`, delErr.message);
+                        }
+                    }
+                    console.log(`  Deleted ${deletedCount} report file(s).`);
+                } else {
+                    console.log('  No existing reports found to delete.');
+                }
+            } catch (err) {
+                // If directory doesn't exist, that's fine, mkdir will create it later
+                if (err.code === 'ENOENT') {
+                     console.log('  Reports directory does not exist yet, nothing to clear.');
+                } else {
+                    console.error('  Error reading reports directory for clearing:', err.message);
+                    // Optional: Decide if this is fatal. For now, continue.
+                }
+            }
+        } // --- End Clear Reports Logic ---
+
         await fs.mkdir(reportsDir, { recursive: true }); // Create reports directory if it doesn't exist
         console.log(`Reports will be saved to: ${reportsDir}`);
 

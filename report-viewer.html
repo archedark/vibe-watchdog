@@ -458,7 +458,8 @@
 
             // Populate data
             reports.forEach((report, reportIndex) => {
-                const timestamp = new Date(report.timestamp).toLocaleString();
+                // Use a simpler time format
+                const timestamp = new Date(report.timestamp).toLocaleTimeString();
                 timestamps.push(timestamp);
 
                 // Node Counts and Deltas
@@ -605,7 +606,10 @@
                 options: {
                     scales: {
                         y: {
-                            beginAtZero: true
+                            beginAtZero: true,
+                            ticks: { // Configure Y-axis ticks
+                                precision: 0 // Ensure only whole numbers are shown
+                            }
                         }
                     },
                     responsive: true,
@@ -739,7 +743,7 @@
             reportChart.data.datasets[0].data = dataToPlot;
             reportChart.data.datasets[0].label = label;
             // Update the separate title span
-            chartTitleText.textContent = `${label} Over Time`;
+            chartTitleText.textContent = `${label}`;
             reportChart.update();
 
             // Update highlight in table using the determined type and key
