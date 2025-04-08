@@ -31,10 +31,10 @@ if (args.help) {
 
 const targetUrl = args.url;
 const isHeadless = args.headless || false; // Default to false (visible browser)
-const interval = args.interval || 30000; // Default to 30 seconds
+const interval = args.interval || 10000; // Default to 10 seconds
 const threshold = args.threshold || 3; // Default to 3 consecutive increases
-const maxReports = args['max-reports'] || 10; // Default to 10 reports
-const serverPort = args.port || 3000; // Default port 3000
+const maxReports = args['max-reports'] || 20; // Default to 20 reports
+const serverPort = args.port || 1109; // Default port 1109
 
 if (!targetUrl) {
     console.error('Error: --url parameter is required.');
