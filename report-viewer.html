@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watchdog Report Viewer</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        #reportInputLabel {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            text-align: center;
+            width: 200px;
+        }
+        #reportInputLabel:hover {
+            background-color: #0056b3;
+        }
+        #reportFolderInput {
+            display: none; /* Hide the actual input */
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background-color: #fff;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+            vertical-align: top; /* Align content top for preformatted text */
+        }
+        th {
+            background-color: #e9e9e9;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        pre {
+            white-space: pre-wrap; /* Allow wrapping */
+            word-wrap: break-word; /* Break long words */
+            margin: 0;
+            font-size: 0.9em;
+        }
+        #status {
+            text-align: center;
+            margin-top: 15px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Watchdog Report Viewer</h1>
+
+    <!-- Remove file input -->
+    <!-- <label for="reportFolderInput" id="reportInputLabel">Select Reports Directory</label> -->
+    <!-- <input type="file" id="reportFolderInput" webkitdirectory directory multiple style="display: none;" /> -->
+
+    <button id="loadReportsButton">Load Reports</button>
+
+    <div id="status">Click the button to load reports from the server.</div>
+    <div id="reportTableContainer"></div>
+
+    <script>
+        // const folderInput = document.getElementById('reportFolderInput'); // Removed
+        const loadButton = document.getElementById('loadReportsButton');
+        const tableContainer = document.getElementById('reportTableContainer');
+        const statusDiv = document.getElementById('status');
+
+        // folderInput.addEventListener('change', handleFiles); // Removed
+        loadButton.addEventListener('click', loadReportData);
+
+        // --- Function to fetch and process the single JSON file ---
+        async function loadReportData() {
+            statusDiv.textContent = 'Loading reports from the server...';
+            tableContainer.innerHTML = ''; // Clear previous table
+            loadButton.disabled = true; // Prevent multiple clicks
+
+            try {
+                const response = await fetch('/api/reports'); // Fetch from the API endpoint
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status} - Could not fetch /api/reports. Make sure the watchdog server is running.`);
+                }
+                const reports = await response.json();
+
+                if (!Array.isArray(reports)) {
+                     throw new Error('/api/reports did not return a valid JSON array.');
+                }
+
+                if (reports.length === 0) {
+                    statusDiv.textContent = '/api/reports returned an empty array. No reports found in the reports directory?';
+                    loadButton.disabled = false;
+                    return;
+                }
+
+                // Data is already sorted by the server (newest first)
+                renderTable(reports);
+                statusDiv.textContent = `Loaded ${reports.length} reports.`;
+
+            } catch (error) {
+                console.error('Error loading or processing report data:', error);
+                statusDiv.textContent = `Error: ${error.message}`; // Display user-friendly error
+                tableContainer.innerHTML = ''; // Clear table on error
+            } finally {
+                loadButton.disabled = false; // Re-enable button
+            }
+        }
+
+        // --- REMOVE handleFiles function --- 
+        /* function handleFiles(event) { ... } */
+
+        // --- REMOVE parseTimestampFromFilename function --- (Timestamp is in data now)
+        /* function parseTimestampFromFilename(filename) { ... } */
+
+        function renderTable(reports) {
+            if (!reports || reports.length === 0) { // Added check for !reports
+                tableContainer.innerHTML = '<p>No valid reports to display.</p>';
+                return;
+            }
+
+            let tableHTML = '<table><thead><tr>';
+            tableHTML += '<th>Timestamp</th>';
+            // Assuming structure from watchdog.js: data.nodeCounts exists in the first report entry
+            if (reports[0]?.nodeCounts) {
+                Object.keys(reports[0].nodeCounts).forEach(key => {
+                     // Simple capitalization for header
+                     const header = key.replace('Count', ' Count');
+                     tableHTML += `<th>${header.charAt(0).toUpperCase() + header.slice(1)}</th>`;
+                });
+            }
+            tableHTML += '<th>Constructor Deltas (Three.js)</th>';
+            tableHTML += '<th>Constructor Deltas (Game)</th>';
+            tableHTML += '</tr></thead><tbody>';
+
+            reports.forEach(report => {
+                tableHTML += '<tr>';
+                // Format timestamp for display - use report.timestamp directly
+                const displayTimestamp = report.timestamp ? new Date(report.timestamp).toLocaleString() : 'Invalid Date';
+                // Maybe add filename if needed later, but timestamp is the key now
+                tableHTML += `<td>${displayTimestamp}</td>`; 
+
+                // Node Counts - access directly from report object
+                const nodeCounts = report.nodeCounts || {};
+                if (reports[0]?.nodeCounts) { // Use first report's keys as template
+                    Object.keys(reports[0].nodeCounts).forEach(key => {
+                         tableHTML += `<td>${nodeCounts[key] !== undefined ? nodeCounts[key] : 'N/A'}</td>`;
+                    });
+                }
+
+                // Constructor Deltas - access directly from report object
+                const deltas = report.constructorCountsDelta || {};
+                const threejsDeltas = deltas.threejs || {};
+                const gameDeltas = deltas.game || {};
+                // const miscDeltas = deltas.misc || {}; // Add if needed
+
+                // Format deltas nicely using <pre>
+                tableHTML += `<td><pre>${JSON.stringify(threejsDeltas, null, 2)}</pre></td>`;
+                tableHTML += `<td><pre>${JSON.stringify(gameDeltas, null, 2)}</pre></td>`;
+
+                tableHTML += '</tr>';
+            });
+
+            tableHTML += '</tbody></table>';
+            tableContainer.innerHTML = tableHTML;
+        }
+
+        // Optional: Automatically load reports when the page loads
+        document.addEventListener('DOMContentLoaded', loadReportData);
+
+    </script>
+
+</body>
+</html> 

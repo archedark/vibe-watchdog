@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const minimist = require('minimist');
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
+const express = require('express'); // Add Express
 
 const args = minimist(process.argv.slice(2));
 
@@ -16,6 +17,7 @@ Options:
   --interval <ms>      The interval (in milliseconds) between heap snapshots. Default: 30000 (30 seconds).
   --threshold <count>  The number of consecutive increases in a resource count to trigger a potential leak warning. Default: 3.
   --max-reports <num>  The maximum number of JSON reports to keep in the reports directory. Default: 10.
+  --port <num>         The port number for the report viewer web server. Default: 3000.
   --help               Show this help message and exit.
     `);
     process.exit(0);
@@ -31,10 +33,11 @@ const isHeadless = args.headless || false; // Default to false (visible browser)
 const interval = args.interval || 30000; // Default to 30 seconds
 const threshold = args.threshold || 3; // Default to 3 consecutive increases
 const maxReports = args['max-reports'] || 10; // Default to 10 reports
+const serverPort = args.port || 3000; // Default port 3000
 
 if (!targetUrl) {
     console.error('Error: --url parameter is required.');
-    console.log('Usage: node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--threshold <count>] [--max-reports <num>]');
+    console.log('Usage: node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--threshold <count>] [--max-reports <num>] [--port <num>]');
     process.exit(1);
 }
 
@@ -44,25 +47,112 @@ async function runWatchdog() {
     console.log(`Snapshot interval: ${interval}ms`);
     console.log(`Leak threshold: ${threshold} increases`);
     console.log(`Maximum reports to keep: ${maxReports}`); // Log the max reports value
+    console.log(`Report viewer server starting on port: ${serverPort}`); // Log server port
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
 
     const reportsDir = path.join(__dirname, 'reports'); // Define reports directory
-
+    const app = express(); // Create Express app
+    let server; // Declare server variable for later cleanup
     let browser;
+    let intervalId; // Declare intervalId for cleanup
+
+    // --- Web Server Setup ---
+    app.get('/', (req, res) => {
+        res.sendFile(path.join(__dirname, 'report-viewer.html'));
+    });
+
+    // Function to extract timestamp from filename (consistent with manageReports)
+    function getTimestampFromFilename(filename) {
+        // filename format: report-YYYY-MM-DDTHH-MM-SSZ.json
+        const timestampPart = filename.substring(7, filename.length - 5); // e.g., "YYYY-MM-DDTHH-MM-SSZ"
+        // Restore colons in the time part: HH-MM-SS -> HH:MM:SS
+        // Ensure T separator is present
+        const isoTimestamp = timestampPart.substring(0, 10) + 'T' + timestampPart.substring(11).replace(/-/g, ':');
+        // Now isoTimestamp should be "YYYY-MM-DDTHH:MM:SSZ" which is valid ISO 8601
+        const date = new Date(isoTimestamp);
+        if (isNaN(date.getTime())) { // Check if parsing failed
+            console.warn(`Failed to parse timestamp from filename: ${filename} (Constructed ISO: ${isoTimestamp})`);
+            return null; // Return null to indicate failure
+        }
+        return date.getTime(); // Return milliseconds since epoch
+    }
+
+
+    app.get('/api/reports', async (req, res) => {
+        try {
+            const files = await fs.readdir(reportsDir);
+            const reportFiles = files.filter(f => f.startsWith('report-') && f.endsWith('.json'));
+
+            let reportsData = [];
+            for (const file of reportFiles) {
+                const filepath = path.join(reportsDir, file);
+                try {
+                    const content = await fs.readFile(filepath, 'utf-8');
+                    const reportJson = JSON.parse(content);
+                    // Add timestamp from filename for sorting
+                    const timestampMillis = getTimestampFromFilename(file); // Get ms
+                    if (timestampMillis === null) {
+                         console.warn(`Skipping report file due to invalid timestamp in filename: ${file}`);
+                         continue; // Skip this file if timestamp is invalid
+                    }
+                    reportJson.timestamp = new Date(timestampMillis).toISOString(); // Convert ms back to ISO string
+                    reportsData.push(reportJson);
+                } catch (readErr) {
+                    console.warn(`Failed to read or parse report file ${file}:`, readErr.message);
+                    // Optionally skip this file or include an error marker
+                }
+            }
+
+            // Sort reports by timestamp, newest first
+            reportsData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+            res.json(reportsData);
+        } catch (err) {
+            console.error('Error serving reports:', err.message);
+            res.status(500).send('Error retrieving reports');
+        }
+    });
+
+    // --- End Web Server Setup ---
+
+
     try {
         await fs.mkdir(reportsDir, { recursive: true }); // Create reports directory if it doesn't exist
         console.log(`Reports will be saved to: ${reportsDir}`);
 
-        browser = await puppeteer.launch({ headless: isHeadless });
-        const page = await browser.newPage();
+        // Start the server *before* launching Puppeteer
+        server = app.listen(serverPort, () => {
+             console.log(`Report viewer available at http://localhost:${serverPort}`);
+        });
+        server.on('error', (err) => {
+            console.error(`Server error: ${err.message}`);
+            // Decide how to handle server errors (e.g., exit or just log)
+            // For now, log and let watchdog continue if possible
+        });
 
-        console.log(`Navigating to ${targetUrl}...`);
-        await page.goto(targetUrl, { waitUntil: 'networkidle0' }); // Wait until network is idle
-        console.log('Page loaded successfully.');
+        browser = await puppeteer.launch({ headless: isHeadless });
+        // Get initial page (often about:blank) and navigate it to the report viewer
+        const initialPages = await browser.pages();
+        const reportViewerPage = initialPages.length > 0 ? initialPages[0] : await browser.newPage(); // Reuse or create
+        try {
+            console.log(`Navigating initial tab to report viewer: http://localhost:${serverPort}`);
+            await reportViewerPage.goto(`http://localhost:${serverPort}`, { waitUntil: 'networkidle0' });
+        } catch (viewerNavError) {
+             console.warn(`Warning: Failed to navigate initial tab to report viewer: ${viewerNavError.message}`);
+             // Continue execution even if the viewer fails to load
+        }
+
+        // Now create a new page for the target game/app
+        const gamePage = await browser.newPage();
+
+        console.log(`Navigating new tab to ${targetUrl}...`);
+        await gamePage.goto(targetUrl, { waitUntil: 'networkidle0' }); // Wait until network is idle
+        console.log('Game page loaded successfully.');
 
         // Steps 3-10 will go here...
-        console.log('Connecting to DevTools Protocol...');
-        const cdpSession = await page.target().createCDPSession();
+        console.log('Connecting to DevTools Protocol on game page...');
+        // Ensure CDP session is attached to the GAME PAGE
+        const cdpSession = await gamePage.target().createCDPSession();
 
         // --- BEGIN ADDED DEBUG ---
         // console.log('Attaching listener for ALL CDP session events...');
@@ -604,10 +694,20 @@ async function runWatchdog() {
 
         // Step 5: Implement Snapshot Interval
         console.log(`\nSetting snapshot interval to ${interval}ms`);
-        const intervalId = setInterval(async () => {
+        // Assign interval to the previously declared variable
+        intervalId = setInterval(async () => {
             console.log('\n--- Interval Start ---');
-            // Step 6: Retrieve snapshot data
-            const snapshotDataString = await takeSnapshot(cdpSession);
+            let snapshotDataString = null; // Initialize to null
+            try { // Add try/catch around snapshot taking
+                // Step 6: Retrieve snapshot data
+                snapshotDataString = await takeSnapshot(cdpSession);
+            } catch (snapshotError) {
+                console.error(`Error taking snapshot: ${snapshotError.message}`);
+                // Decide if we should stop the interval or just skip this iteration
+                // For now, just log and continue the interval
+                console.log('--- Interval End (skipped analysis due to snapshot error) ---');
+                return; // Skip the rest of the interval function
+            }
 
             let currentAnalysisResult = null;
             let reportData = null; // Initialize reportData
@@ -749,11 +849,13 @@ async function runWatchdog() {
         // Keep the browser open while the interval is running
         // Cleanup logic needs to handle stopping the interval and closing the browser
 
-        // The process will now stay alive due to the interval
+        // The process will now stay alive due to the interval AND the server
         // await browser.close(); // Will be moved to cleanup logic
 
     } catch (error) {
-        console.error('Error during browser operation:', error.message);
+        console.error('Error during browser operation or server startup:', error.message);
+        if (intervalId) clearInterval(intervalId); // Clear interval on error
+        if (server) server.close(); // Close server on error
         if (browser) {
             await browser.close();
         }
@@ -764,10 +866,20 @@ async function runWatchdog() {
 runWatchdog();
 // Basic cleanup on exit
 process.on('SIGINT', async () => {
-    console.log('Received SIGINT. Closing browser...');
+    console.log('Received SIGINT. Closing browser, stopping interval and server...');
     // Add cleanup logic here if browser is accessible globally or passed around
     // Need to clear the interval and close the browser properly
     // For now, we rely on the main function's try/catch, but proper cleanup needed later
+
+    // Proper Cleanup Attempt: (Needs access to intervalId, browser, server)
+    // Need to make intervalId, browser, and server accessible here.
+    // A simple way is to declare them outside runWatchdog, but this pollutes global scope.
+    // A better way involves structuring the app differently, maybe using classes or modules.
+    // For now, we'll rely on the OS cleaning up, but this is not ideal.
+    // if (intervalId) clearInterval(intervalId); // Needs intervalId
+    // if (server) server.close(() => console.log('Server closed.')); // Needs server
+    // if (browser) await browser.close(); // Needs browser
+    console.warn("Cleanup on SIGINT is basic. Ensure resources are closed if errors occur before full setup.");
     process.exit(0);
 });
 
