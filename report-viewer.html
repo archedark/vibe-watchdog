@@ -942,42 +942,55 @@
             }
         }
 
-        // --- Initial Load and Start Polling ---
-        document.addEventListener('DOMContentLoaded', () => {
-             loadReportData(); // Initial load
-             // Start polling after initial load
-             if (pollIntervalId) clearInterval(pollIntervalId); // Clear previous just in case
-             pollIntervalId = setInterval(pollForUpdates, POLLING_INTERVAL_MS);
+        // --- Initial Load, Get Config, and Start Polling ---
+        async function initializeViewer() {
+             try {
+                // Fetch config first to get the interval
+                const configResponse = await fetch('/api/config');
+                if (!configResponse.ok) {
+                    console.warn('Failed to fetch config, using default polling interval.');
+                    startPolling(POLLING_INTERVAL_MS); // Use default if config fails
+                } else {
+                    const config = await configResponse.json();
+                    const intervalToUse = config.snapshotInterval || POLLING_INTERVAL_MS;
+                    console.log(`Using polling interval from config: ${intervalToUse}ms`);
+                    startPolling(intervalToUse);
+                }
+             } catch (err) {
+                 console.error('Error fetching config:', err);
+                 startPolling(POLLING_INTERVAL_MS); // Use default on error
+             }
 
-             // Add event listeners to sort buttons
+            // Perform initial data load regardless of config fetch result
+            await loadReportData();
+
+            // Add event listeners (moved here from DOMContentLoaded)
              document.querySelectorAll('.sort-controls button').forEach(button => {
                 button.addEventListener('click', handleSortClick);
              });
-
-             // Add event listeners for table item clicks (delegate from containers)
              nodeCountsTableContainer.addEventListener('click', handleTableItemClick);
              threeConstructorsTableContainer.addEventListener('click', handleTableItemClick);
              gameConstructorsTableContainer.addEventListener('click', handleTableItemClick);
-
-             // Add event listener for chart title click
              chartTitleText.addEventListener('click', toggleChartDropdown);
-
-            // Add listener to hide dropdown when clicking outside
-            document.addEventListener('click', (event) => {
+             document.addEventListener('click', (event) => {
                 if (!chartHeader.contains(event.target) && chartDropdownContainer.style.display === 'block') {
-                    // Click was outside the chart header area (button + dropdown container)
                     chartDropdownContainer.style.display = 'none';
                 }
-            });
+             });
 
              // Apply initial sort styles
              updateSortButtonStyles();
-        });
+        }
+
+        function startPolling(intervalMs) {
+            console.log(`Starting polling every ${intervalMs}ms`);
+             if (pollIntervalId) clearInterval(pollIntervalId); // Clear previous just in case
+             pollIntervalId = setInterval(pollForUpdates, intervalMs);
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeViewer);
 
     </script>
 
 </body>
-</html> 
-</body>
-</html> 
 </html> 

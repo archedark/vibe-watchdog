@@ -114,6 +114,13 @@ async function runWatchdog() {
         }
     });
 
+    // --- Add config endpoint ---
+    app.get('/api/config', (req, res) => {
+        res.json({
+            snapshotInterval: interval // Expose the interval value
+        });
+    });
+
     // --- End Web Server Setup ---
 
 
