@@ -172,7 +172,10 @@ async function runWatchdog() {
             // For now, log and let watchdog continue if possible
         });
 
-        browser = await puppeteer.launch({ headless: isHeadless });
+        browser = await puppeteer.launch({ 
+            headless: isHeadless,
+            defaultViewport: null,
+        });
         // Get initial page (often about:blank) and navigate it to the report viewer
         const initialPages = await browser.pages();
         const reportViewerPage = initialPages.length > 0 ? initialPages[0] : await browser.newPage(); // Reuse or create
