@@ -6,6 +6,9 @@
     <title>Watchdog Report Viewer</title>
     <!-- Add Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Add Choices.js CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
+    <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
     <style>
         body {
             font-family: sans-serif;
@@ -105,6 +108,49 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
+        /* Style for chart title area */
+        #chartHeader {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 10px;
+            position: relative; /* For positioning the dropdown */
+        }
+        #chartTitleText {
+            /* Style if needed, but title is now set via Chart.js options */
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-right: 15px; /* Keep some space if needed, or remove */
+            cursor: pointer; /* Indicate clickability */
+            text-decoration: none; /* Remove underline by default */
+            border-bottom: 1px dashed #aaa; /* Subtle indicator */
+            color: #333; /* Match default text color */
+        }
+        #chartTitleText:hover {
+             color: #0056b3; /* Change color on hover */
+             border-bottom: 1px dashed #0056b3;
+        }
+        #selectChartItemBtn {
+             /* REMOVE THIS - No longer needed */
+             /* padding: 3px 8px; */
+             /* font-size: 0.8em; */
+             display: none; /* Hide completely */
+        }
+        #chartDropdownContainer {
+            position: absolute;
+            top: 100%; /* Position below the header */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%; /* Adjust width as needed */
+            max-width: 400px;
+            z-index: 100; /* Ensure it's above other elements */
+            display: none; /* Hidden by default */
+            background-color: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
         /* Style for sort buttons */
         .sort-controls {
             margin-bottom: 10px;
@@ -153,10 +199,20 @@
 </head>
 <body>
 
-    <h1>Watchdog Report Viewer</h1>
+    <h1>Vibe Watchdog</h1>
 
     <!-- Add Canvas for Chart -->
     <div id="chartContainer">
+        <!-- Container for title and dropdown trigger -->
+        <div id="chartHeader">
+             <!-- Title text is now the trigger -->
+             <span id="chartTitleText" title="Select item to graph"></span>
+             <!-- Select button removed -->
+             <!-- <button id="selectChartItemBtn" title="Select item to graph">Select Item...</button> -->
+             <div id="chartDropdownContainer">
+                 <select id="chartItemSelect"></select>
+             </div>
+        </div>
         <canvas id="reportChart"></canvas>
     </div>
 
@@ -209,6 +265,12 @@
         const threeConstructorsTableContainer = document.getElementById('threeConstructorsTableContainer');
         const gameConstructorsTableContainer = document.getElementById('gameConstructorsTableContainer');
         const chartCanvas = document.getElementById('reportChart');
+        const chartHeader = document.getElementById('chartHeader');
+        const chartTitleText = document.getElementById('chartTitleText');
+        const selectChartItemBtn = document.getElementById('selectChartItemBtn');
+        const chartDropdownContainer = document.getElementById('chartDropdownContainer');
+        const chartItemSelectElement = document.getElementById('chartItemSelect');
+        let choicesInstance = null; // To hold Choices.js instance
         let reportChart = null; // Variable to hold the chart instance
         let currentActiveTabId = 'gameConstructorsTab'; // Track the active tab
         let lastReportTimestamp = null; // Track the timestamp of the latest report shown
@@ -251,6 +313,8 @@
             currentChartItem = { type: null, key: null }; // Reset selected item on tab change
             updateChart(); // Will graph first item by default if key is null
             updateSelectedRowHighlight(); // Clear highlight in old table
+            // Update dropdown options when tab changes
+            populateChartItemDropdown();
         }
 
         // --- Fetch and Process Data ---
@@ -296,6 +360,9 @@
                 lastReportTimestamp = new Date(reports[reports.length - 1].timestamp).getTime();
                 const lastTimestampReadable = new Date(lastReportTimestamp).toLocaleString();
                 statusDiv.textContent = `Loaded ${reports.length} reports. Last update: ${lastTimestampReadable}`; // Update status
+                
+                // Update dropdown on data refresh
+                populateChartItemDropdown();
 
             } catch (error) {
                 console.error('Error loading or processing report data:', error);
@@ -545,15 +612,29 @@
                     maintainAspectRatio: true, // Adjust as needed
                     plugins: {
                        legend: {
-                           display: true
+                           display: true // Keep legend for the single dataset
                        },
                        title: {
-                            display: true,
-                            text: 'Selected Item Count Over Time' // Default title
+                            display: false, // Disable default chart title plugin
+                            // text: 'Selected Item Count Over Time' // We use chartTitleText span now
                         }
                     }
                 }
             });
+            // Initialize Choices.js
+            if (choicesInstance) {
+                choicesInstance.destroy();
+            }
+            choicesInstance = new Choices(chartItemSelectElement, {
+                searchEnabled: true,
+                itemSelectText: 'Select',
+                shouldSort: false, // Keep order from population
+                // Optional: Add placeholder
+                // placeholder: true,
+                // placeholderValue: 'Search or select an item...',
+            });
+            // Add event listener for dropdown changes
+            chartItemSelectElement.addEventListener('change', handleDropdownChange);
         }
 
         function updateChart(type = null, key = null) {
@@ -657,7 +738,8 @@
             reportChart.data.labels = processedData.timestamps;
             reportChart.data.datasets[0].data = dataToPlot;
             reportChart.data.datasets[0].label = label;
-            reportChart.options.plugins.title.text = `${label} Over Time`; // Update title
+            // Update the separate title span
+            chartTitleText.textContent = `${label} Over Time`;
             reportChart.update();
 
             // Update highlight in table using the determined type and key
@@ -788,6 +870,74 @@
              }
         }
 
+        // --- Dropdown Logic ---
+        function populateChartItemDropdown() {
+            if (!choicesInstance) return;
+
+            let sourceDataKeys = [];
+            let typeToUse;
+
+            // Determine source based on active tab
+             if (currentActiveTabId === 'gameConstructorsTab') {
+                typeToUse = 'game';
+                sourceDataKeys = Object.keys(processedData.gameCounts).sort();
+            } else if (currentActiveTabId === 'threeConstructorsTab') {
+                typeToUse = 'threejs';
+                sourceDataKeys = Object.keys(processedData.threejsCounts).sort();
+            } else if (currentActiveTabId === 'nodeCountsTab') {
+                typeToUse = 'nodeCounts';
+                sourceDataKeys = Object.keys(processedData.nodeCounts).sort();
+            } else {
+                choicesInstance.clearChoices();
+                return;
+            }
+
+            const choices = sourceDataKeys.map(itemKey => {
+                // Format label for display (especially for node counts)
+                 const displayLabel = itemKey.includes('Count')
+                    ? itemKey.replace('Count', ' Count').replace(/([A-Z])/g, ' $1').trim()
+                    : itemKey;
+                return {
+                    value: `${typeToUse}|${itemKey}`, // Combine type and key in value
+                    label: displayLabel,
+                    selected: (currentChartItem.type === typeToUse && currentChartItem.key === itemKey),
+                    disabled: false
+                };
+            });
+
+            // Use setChoices to replace options
+            choicesInstance.setChoices(choices, 'value', 'label', true);
+
+             // Ensure the dropdown reflects the currently selected item in the chart
+            const currentValue = `${currentChartItem.type}|${currentChartItem.key}`;
+             choicesInstance.setChoiceByValue(currentValue);
+
+        }
+
+        function handleDropdownChange(event) {
+            const selectedValue = event.detail.value; // Choices.js provides value in event.detail
+            if (selectedValue) {
+                const [type, key] = selectedValue.split('|');
+                if (type && key) {
+                    updateChart(type, key);
+                    // Optionally hide dropdown after selection
+                    chartDropdownContainer.style.display = 'none';
+                }
+            }
+        }
+
+        function toggleChartDropdown() {
+            const isVisible = chartDropdownContainer.style.display === 'block';
+            if (isVisible) {
+                chartDropdownContainer.style.display = 'none';
+            } else {
+                populateChartItemDropdown(); // Ensure options are up-to-date
+                chartDropdownContainer.style.display = 'block';
+                // Focus the search input within Choices.js
+                choicesInstance?.input?.focus();
+            }
+        }
+
         // --- Initial Load and Start Polling ---
         document.addEventListener('DOMContentLoaded', () => {
              loadReportData(); // Initial load
@@ -805,6 +955,17 @@
              threeConstructorsTableContainer.addEventListener('click', handleTableItemClick);
              gameConstructorsTableContainer.addEventListener('click', handleTableItemClick);
 
+             // Add event listener for chart title click
+             chartTitleText.addEventListener('click', toggleChartDropdown);
+
+            // Add listener to hide dropdown when clicking outside
+            document.addEventListener('click', (event) => {
+                if (!chartHeader.contains(event.target) && chartDropdownContainer.style.display === 'block') {
+                    // Click was outside the chart header area (button + dropdown container)
+                    chartDropdownContainer.style.display = 'none';
+                }
+            });
+
              // Apply initial sort styles
              updateSortButtonStyles();
         });
@@ -812,4 +973,7 @@
     </script>
 
 </body>
+</html> 
+</body>
+</html> 
 </html> 
