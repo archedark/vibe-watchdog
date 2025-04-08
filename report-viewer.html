@@ -4,22 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vibe Watchdog</title>
+    <!-- Add Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Orbitron:wght@700&display=swap" rel="stylesheet">
     <!-- Add Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Add Choices.js CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css"/>
     <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
     <style>
+        :root {
+            --primary-blue: #00e5ff;
+            --accent-magenta: #ff2ec7;
+            --deep-purple: #2a0a4a;
+            --fuschia-glow: #b400a1;
+            --soft-teal: #00d9b2;
+            --shadow-black: #0d0c1b;
+            --white: #ffffff;
+            --glow-blue-soft: rgba(0, 229, 255, 0.3);
+            --glow-magenta-soft: rgba(255, 46, 199, 0.2);
+        }
+
         body {
-            font-family: sans-serif;
+            font-family: 'Inter', sans-serif;
             margin: 20px;
-            background-color: #f4f4f4;
+            background-color: var(--shadow-black);
+            color: var(--white);
             font-size: 14px; /* Base font size */
         }
-        h1 {
-            /* Remove default h1 styles if needed, or repurpose */
-            /* text-align: center; */
-            /* color: #333; */
+        h1, h2 {
+            font-family: 'Orbitron', sans-serif;
+            text-shadow: 0 0 8px var(--primary-blue);
+            color: var(--white); /* Ensure headers are white */
+            margin-bottom: 15px;
+        }
+        h2 {
+            margin-top: 0; /* Remove default margin for h2 inside tabs */
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--primary-blue);
         }
         /* Style for Logo */
         .logo-container {
@@ -33,90 +56,113 @@
         }
         .tab-container {
             overflow: hidden;
-            border: 1px solid #ccc;
-            background-color: #f1f1f1;
+            border: 1px solid var(--primary-blue);
+            background-color: var(--deep-purple);
             margin-bottom: 10px;
+            border-radius: 8px 8px 0 0; /* Rounded top corners */
         }
         .tab-container button {
             background-color: inherit;
             float: left;
             border: none;
+            border-right: 1px solid var(--primary-blue); /* Separator */
             outline: none;
             cursor: pointer;
             padding: 14px 16px;
-            transition: 0.3s;
+            transition: 0.3s ease;
             font-size: 1em; /* Relative font size */
+            color: var(--white);
+        }
+        .tab-container button:last-child {
+            border-right: none;
         }
         .tab-container button:hover {
-            background-color: #ddd;
+            background-color: var(--fuschia-glow);
+            text-shadow: 0 0 5px var(--accent-magenta);
         }
         .tab-container button.active {
-            background-color: #ccc;
+            background: linear-gradient(90deg, var(--accent-magenta), var(--primary-blue));
+            font-weight: bold;
+            text-shadow: 0 0 6px var(--white);
         }
         .tab-content {
             display: none; /* Hide tabs by default */
-            padding: 15px 12px;
-            border: 1px solid #ccc;
+            padding: 20px;
+            border: 1px solid var(--primary-blue);
             border-top: none;
-            background-color: #fff;
+            background-color: var(--deep-purple);
             overflow-x: auto; /* Allow horizontal scrolling for tables */
+            border-radius: 0 0 12px 12px; /* Rounded bottom corners */
+            box-shadow: inset 0 0 12px var(--glow-magenta-soft);
         }
         #status {
             text-align: center;
-            margin: 15px 0;
-            color: #555;
+            margin: 20px 0;
+            color: var(--primary-blue);
+            font-size: 1.1em;
         }
         table {
             width: 100%;
             min-width: 600px; /* Minimum width to encourage scrolling */
             border-collapse: collapse;
-            margin-top: 10px;
-            background-color: #fff;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-top: 15px;
+            background-color: var(--deep-purple); /* Match tab content */
+            box-shadow: 0 0 10px var(--glow-blue-soft);
             font-size: 0.9em; /* Smaller font for table data */
+            border: 1px solid var(--primary-blue); /* Outer border */
+            border-radius: 8px; /* Rounded corners for table */
+            overflow: hidden; /* Clip content to rounded corners */
         }
         th, td {
-            border: 1px solid #ddd;
-            padding: 8px 10px; /* Adjust padding */
+            border: 1px solid rgba(0, 229, 255, 0.3); /* Lighter blue border */
+            padding: 10px 12px; /* Adjust padding */
             text-align: left;
             white-space: nowrap; /* Prevent wrapping in cells */
+            color: var(--white); /* Default text color */
         }
         th {
-            background-color: #e9e9e9;
+            background-color: rgba(0, 229, 255, 0.1); /* Semi-transparent blue */
             font-weight: bold;
             position: sticky; /* Make header sticky */
             top: 0;
             z-index: 1;
+            color: var(--primary-blue); /* Header text color */
+            text-shadow: 0 0 1px var(--primary-blue); /* Reduced glow */
         }
         /* Style first column (row headers) */
         td:first-child, th:first-child {
              position: sticky;
              left: 0;
-             background-color: #f2f2f2; /* Slightly different background */
+             background-color: rgba(42, 10, 74, 0.9); /* Slightly darker purple */
              z-index: 2; /* Above sticky header */
             font-weight: bold;
+            border-right: 2px solid var(--accent-magenta); /* Accent border */
+            color: var(--white); /* Ensure white text */
         }
         th:first-child {
             z-index: 3; /* Above sticky header and row headers */
         }
         /* Handle positive/negative deltas */
         td.delta-positive {
-            color: green;
+            color: var(--soft-teal); /* Use soft teal for positive */
             font-weight: bold;
+            text-shadow: 0 0 1px var(--soft-teal);
         }
         td.delta-negative {
-            color: red;
+            color: var(--accent-magenta); /* Use accent magenta for negative */
             font-weight: bold;
+            text-shadow: 0 0 1px var(--accent-magenta);
         }
         /* Style for chart container */
         #chartContainer {
             width: 80%; /* Or desired width */
             max-width: 900px;
-            margin: 20px auto; /* Center the chart */
-            padding: 10px;
-            background-color: #fff;
-            border: 1px solid #ccc;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin: 30px auto; /* Center the chart */
+            padding: 20px;
+            background: var(--deep-purple);
+            border: 1px solid var(--primary-blue);
+            box-shadow: 0 0 15px var(--glow-blue-soft);
+            border-radius: 12px; /* Rounded corners */
         }
 
         /* Style for chart title area */
@@ -124,22 +170,24 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             position: relative; /* For positioning the dropdown */
         }
         #chartTitleText {
-            /* Style if needed, but title is now set via Chart.js options */
-            font-size: 1.2em;
+            font-family: 'Orbitron', sans-serif; /* Match header font */
+            font-size: 1.4em;
             font-weight: bold;
-            margin-right: 15px; /* Keep some space if needed, or remove */
             cursor: pointer; /* Indicate clickability */
             text-decoration: none; /* Remove underline by default */
-            border-bottom: 1px dashed #aaa; /* Subtle indicator */
-            color: #333; /* Match default text color */
+            border-bottom: 2px dashed var(--primary-blue); /* Subtle indicator */
+            color: var(--white); /* Match default text color */
+            text-shadow: 0 0 6px var(--primary-blue);
+            padding-bottom: 3px;
+            transition: color 0.3s ease, border-bottom-color 0.3s ease;
         }
         #chartTitleText:hover {
-             color: #0056b3; /* Change color on hover */
-             border-bottom: 1px dashed #0056b3;
+             color: var(--accent-magenta); /* Change color on hover */
+             border-bottom-color: var(--accent-magenta);
         }
         #selectChartItemBtn {
              /* REMOVE THIS - No longer needed */
@@ -156,55 +204,118 @@
             max-width: 400px;
             z-index: 100; /* Ensure it's above other elements */
             display: none; /* Hidden by default */
-            background-color: white;
-            border: 1px solid #ccc;
+            background-color: var(--deep-purple);
+            border: 1px solid var(--primary-blue);
             padding: 10px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px var(--glow-magenta-soft);
+            border-radius: 8px;
         }
 
         /* Style for sort buttons */
         .sort-controls {
             margin-bottom: 10px;
-            padding: 5px;
-            background-color: #eee;
-            border: 1px solid #ccc;
+            padding: 10px;
+            background-color: rgba(0, 229, 255, 0.05); /* Very subtle blue bg */
+            border: 1px solid var(--primary-blue);
             border-bottom: none; /* Attach to table border */
             display: flex;
             gap: 10px;
             align-items: center;
+            border-radius: 8px 8px 0 0; /* Match table top radius */
         }
         .sort-controls span {
             font-weight: bold;
             margin-right: 5px;
+            color: var(--primary-blue);
         }
         .sort-controls button {
-            padding: 5px 10px;
+            padding: 8px 15px;
             cursor: pointer;
-            border: 1px solid #bbb;
-            background-color: #f9f9f9;
-            border-radius: 3px;
+            border: 1px solid var(--primary-blue);
+            background: linear-gradient(90deg, var(--accent-magenta), var(--primary-blue));
+            color: var(--white);
+            border-radius: 8px;
+            font-weight: bold;
+            box-shadow: 0 0 8px var(--glow-blue-soft);
+            transition: transform 0.2s ease, filter 0.2s ease;
         }
         .sort-controls button:hover {
-            background-color: #e9e9e9;
+            filter: brightness(1.2);
+            transform: scale(1.05);
         }
         .sort-controls button.active {
-            background-color: #ccc;
+            background: linear-gradient(90deg, var(--fuschia-glow), var(--soft-teal)); /* Different gradient for active */
             font-weight: bold;
+            box-shadow: 0 0 12px var(--glow-magenta-soft), inset 0 0 5px rgba(255, 255, 255, 0.3);
+            transform: scale(1.02); /* Slightly larger when active */
+        }
+        .sort-controls button.active:hover {
+            filter: brightness(1.1);
         }
 
         /* Make first cell clickable */
         .clickable-item {
             cursor: pointer;
-            text-decoration: underline;
-            color: #0056b3;
+            text-decoration: none; /* Remove default underline */
+            color: var(--primary-blue); /* Use primary blue for links */
+            transition: color 0.3s ease, text-shadow 0.3s ease;
+            font-weight: bold; /* Make names stand out */
         }
         .clickable-item:hover {
-            color: #007bff;
+            color: var(--accent-magenta);
+            text-shadow: 0 0 5px var(--accent-magenta);
         }
 
-        /* Indicate selected item in table (optional) */
-        .selected-item td:first-child {
-             background-color: #cce5ff; /* Light blue highlight */
+        /* Indicate selected item in table */
+        tr.selected-item td:first-child {
+             background-color: var(--fuschia-glow) !important; /* Use fuschia with !important to override sticky bg */
+             color: var(--white) !important;
+             text-shadow: 0 0 5px var(--white);
+             border-right-color: var(--primary-blue); /* Change border color too */
+        }
+        /* Highlight entire selected row subtly */
+        tr.selected-item td {
+             background-color: rgba(180, 0, 161, 0.2); /* Semi-transparent fuschia */
+        }
+        /* Ensure the first cell highlight wins over the row highlight */
+         tr.selected-item td:first-child {
+             background-color: var(--fuschia-glow) !important;
+         }
+
+        /* Style Choices.js dropdown */
+        .choices {
+            margin-bottom: 0; /* Reset default margin */
+        }
+        .choices__inner {
+            background-color: var(--shadow-black);
+            border: 1px solid var(--primary-blue);
+            border-radius: 6px;
+            color: var(--white);
+            font-size: 1em;
+            min-height: auto;
+            padding: 5px 8px;
+        }
+        .choices__list--dropdown,
+        .choices__list[aria-expanded] {
+            background-color: var(--deep-purple);
+            border: 1px solid var(--primary-blue);
+            border-top: none; /* Attached to input */
+            border-radius: 0 0 6px 6px;
+        }
+        .choices__item--choice {
+            color: var(--white);
+            padding: 8px 10px;
+        }
+        .choices__item--choice.is-highlighted, /* Hover/active */
+        .choices__item--selectable.is-highlighted {
+            background: linear-gradient(90deg, var(--accent-magenta), var(--primary-blue));
+            color: var(--white);
+        }
+        .choices__input {
+             color: var(--white); /* Input text color */
+             background-color: transparent; /* Ensure input bg doesn't override */
+             margin-bottom: 0; /* Reset */
+             padding: 0; /* Reset */
         }
     </style>
 </head>
@@ -614,16 +725,35 @@
                     datasets: [{
                         label: 'Count over time', // Default label
                         data: [], // Data points will go here
-                        borderColor: 'rgb(75, 192, 192)',
-                        tension: 0.1
+                        borderColor: 'var(--primary-blue)', // Neon blue line
+                        backgroundColor: 'rgba(0, 229, 255, 0.1)', // Area fill under line
+                        pointBackgroundColor: 'var(--white)', // White points
+                        pointBorderColor: 'var(--accent-magenta)', // Magenta border for contrast
+                        pointHoverBackgroundColor: 'var(--accent-magenta)', // Magenta on hover
+                        pointHoverBorderColor: 'var(--white)', // White border on hover
+                        tension: 0.2 // Smoother curve
                     }]
                 },
                 options: {
                     scales: {
+                        x: { // Style X-axis (Timestamps)
+                             ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)', // Lighter text for ticks
+                             },
+                             grid: {
+                                color: 'rgba(0, 229, 255, 0.1)', // Subtle blue grid lines
+                                borderColor: 'rgba(0, 229, 255, 0.5)' // Axis line
+                             }
+                         },
                         y: {
                             beginAtZero: true,
                             ticks: { // Configure Y-axis ticks
-                                precision: 0 // Ensure only whole numbers are shown
+                                precision: 0, // Ensure only whole numbers are shown
+                                color: 'rgba(255, 255, 255, 0.7)', // Lighter text for ticks
+                            },
+                            grid: {
+                                color: 'rgba(0, 229, 255, 0.2)', // Slightly more visible blue grid lines
+                                borderColor: 'rgba(0, 229, 255, 0.5)' // Axis line
                             }
                         }
                     },
@@ -631,7 +761,13 @@
                     maintainAspectRatio: true, // Adjust as needed
                     plugins: {
                        legend: {
-                           display: true // Keep legend for the single dataset
+                           display: true, // Keep legend for the single dataset
+                           labels: {
+                                color: 'var(--white)', // Legend text color
+                                font: {
+                                     family: "'Inter', sans-serif"
+                                }
+                           }
                        },
                        title: {
                             display: false, // Disable default chart title plugin
@@ -646,11 +782,39 @@
             }
             choicesInstance = new Choices(chartItemSelectElement, {
                 searchEnabled: true,
-                itemSelectText: 'Select',
+                itemSelectText: '', // Remove default text
                 shouldSort: false, // Keep order from population
-                // Optional: Add placeholder
-                // placeholder: true,
-                // placeholderValue: 'Search or select an item...',
+                classNames: { // Use default class names, styling is done via CSS selectors above
+                    // containerOuter: 'choices',
+                    // containerInner: 'choices__inner',
+                    // input: 'choices__input',
+                    // inputCloned: 'choices__input--cloned',
+                    // list: 'choices__list',
+                    // listItems: 'choices__list--multiple',
+                    // listSingle: 'choices__list--single',
+                    // listDropdown: 'choices__list--dropdown',
+                    // item: 'choices__item',
+                    // itemSelectable: 'choices__item--selectable',
+                    // itemDisabled: 'choices__item--disabled',
+                    // itemChoice: 'choices__item--choice',
+                    // placeholder: 'choices__placeholder',
+                    // group: 'choices__group',
+                    // groupHeading : 'choices__heading',
+                    // button: 'choices__button',
+                    // activeState: 'is-active',
+                    // focusState: 'is-focused',
+                    // openState: 'is-open',
+                    // disabledState: 'is-disabled',
+                    // highlightedState: 'is-highlighted',
+                    // selectedState: 'is-selected', // Might conflict, be careful
+                    // flippedState: 'is-flipped',
+                    // loadingState: 'is-loading',
+                    // noResults: 'has-no-results',
+                    // noChoices: 'has-no-choices'
+                  },
+                 // Optional: Add placeholder
+                 placeholder: true,
+                 placeholderValue: 'Search or select item to graph...',
             });
             // Add event listener for dropdown changes
             chartItemSelectElement.addEventListener('change', handleDropdownChange);
@@ -763,6 +927,23 @@
 
             // Update highlight in table using the determined type and key
             updateSelectedRowHighlight(typeToUse, itemKeyToPlot);
+
+            // Update chart dataset styling
+             reportChart.data.datasets[0].borderColor = 'var(--primary-blue)';
+             reportChart.data.datasets[0].backgroundColor = 'rgba(0, 229, 255, 0.1)';
+             reportChart.data.datasets[0].pointBackgroundColor = 'var(--white)'; // White points
+             reportChart.data.datasets[0].pointBorderColor = 'var(--accent-magenta)'; // Magenta border
+             reportChart.data.datasets[0].pointHoverBackgroundColor = 'var(--accent-magenta)'; // Magenta on hover
+             reportChart.data.datasets[0].pointHoverBorderColor = 'var(--white)'; // White border on hover
+             reportChart.options.scales.x.ticks.color = 'rgba(255, 255, 255, 0.7)';
+             reportChart.options.scales.x.grid.color = 'rgba(0, 229, 255, 0.1)';
+             reportChart.options.scales.x.grid.borderColor = 'rgba(0, 229, 255, 0.5)';
+             reportChart.options.scales.y.ticks.color = 'rgba(255, 255, 255, 0.7)';
+             reportChart.options.scales.y.grid.color = 'rgba(0, 229, 255, 0.2)';
+             reportChart.options.scales.y.grid.borderColor = 'rgba(0, 229, 255, 0.5)';
+             reportChart.options.plugins.legend.labels.color = 'var(--white)';
+
+             reportChart.update();
         }
 
         // --- Sorting Logic ---
@@ -947,13 +1128,12 @@
 
         function toggleChartDropdown() {
             const isVisible = chartDropdownContainer.style.display === 'block';
-            if (isVisible) {
-                chartDropdownContainer.style.display = 'none';
-            } else {
-                populateChartItemDropdown(); // Ensure options are up-to-date
-                chartDropdownContainer.style.display = 'block';
-                // Focus the search input within Choices.js
-                choicesInstance?.input?.focus();
+            chartDropdownContainer.style.display = isVisible ? 'none' : 'block';
+            if (!isVisible) {
+                 populateChartItemDropdown(); // Ensure options are up-to-date
+                // Focus the search input within Choices.js after a tiny delay
+                 // This allows the element to become visible first
+                 setTimeout(() => choicesInstance?.input?.focus(), 50);
             }
         }
 
