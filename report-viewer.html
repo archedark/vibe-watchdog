@@ -134,6 +134,21 @@
             background-color: #ccc;
             font-weight: bold;
         }
+
+        /* Make first cell clickable */
+        .clickable-item {
+            cursor: pointer;
+            text-decoration: underline;
+            color: #0056b3;
+        }
+        .clickable-item:hover {
+            color: #007bff;
+        }
+
+        /* Indicate selected item in table (optional) */
+        .selected-item td:first-child {
+             background-color: #cce5ff; /* Light blue highlight */
+        }
     </style>
 </head>
 <body>
@@ -199,6 +214,7 @@
         let lastReportTimestamp = null; // Track the timestamp of the latest report shown
         let pollIntervalId = null; // To store the interval ID for potential cleanup
         const POLLING_INTERVAL_MS = 10000; // Check for new reports every 10 seconds
+        let currentChartItem = { type: null, key: null }; // Track what's being graphed
 
         // --- Sort State --- (Default: Count Descending)
         const sortState = {
@@ -230,9 +246,11 @@
             document.getElementById(tabName).style.display = "block";
             evt.currentTarget.className += " active";
 
-            // Update the chart when tab changes
+            // Update the chart when tab changes - graph the FIRST item of the new tab
             currentActiveTabId = tabName; // Update tracked tab
-            updateChart();
+            currentChartItem = { type: null, key: null }; // Reset selected item on tab change
+            updateChart(); // Will graph first item by default if key is null
+            updateSelectedRowHighlight(); // Clear highlight in old table
         }
 
         // --- Fetch and Process Data ---
@@ -271,7 +289,8 @@
                 renderConstructorTable('threejs', threeConstructorsTableContainer);
                 renderConstructorTable('game', gameConstructorsTableContainer);
                 initializeChart();
-                updateChart();
+                // Update chart, preserving selection if possible
+                updateChart(currentChartItem.type, currentChartItem.key);
 
                 // Update last timestamp (use the last report in the reversed array, which is the newest)
                 lastReportTimestamp = new Date(reports[reports.length - 1].timestamp).getTime();
@@ -314,6 +333,8 @@
                 } else {
                     // console.log("No new data detected."); // Optional debug log
                 }
+
+                updateSelectedRowHighlight();
 
             } catch (error) {
                 console.error('Error during polling:', error);
@@ -438,8 +459,9 @@
             const sortedRowKeys = sortDataKeys(sortedKeys, processedData.nodeCounts, processedData.nodeDeltas, sortState.nodeCounts.field, sortState.nodeCounts.direction);
 
             sortedRowKeys.forEach(key => {
-                     const header = key.replace('Count', ' Count');
-                 tableHTML += `<tr><td>${header.charAt(0).toUpperCase() + header.slice(1)}</td>`;
+                 const header = key.replace('Count', ' Count').replace(/([A-Z])/g, ' $1').trim(); // Add space before caps
+                 // Add class and data attribute to the first cell
+                 tableHTML += `<tr data-item-type="nodeCounts" data-item-key="${key}"><td class="clickable-item">${header.charAt(0).toUpperCase() + header.slice(1)}</td>`;
                  for (let i = 0; i < timestamps.length; i++) {
                     const count = nodeCounts[key][i];
                     const delta = nodeDeltas[key][i];
@@ -477,7 +499,8 @@
             const sortedRowKeys = sortDataKeys(unsortedKeys, constructorCounts, constructorDeltas, currentSortState.field, currentSortState.direction);
 
             sortedRowKeys.forEach(key => {
-                tableHTML += `<tr><td>${key}</td>`;
+                // Add class and data attribute to the first cell
+                tableHTML += `<tr data-item-type="${type}" data-item-key="${key}"><td class="clickable-item">${key}</td>`;
                 for (let i = 0; i < timestamps.length; i++) {
                     const count = constructorCounts[key][i];
                     const delta = constructorDeltas[key][i];
@@ -533,7 +556,7 @@
             });
         }
 
-        function updateChart() {
+        function updateChart(type = null, key = null) {
             if (!reportChart || !processedData.timestamps.length) {
                  console.log("Chart or data not ready for update.");
                  return; // Don't update if chart isn't initialized or no data
@@ -542,34 +565,93 @@
             let dataToPlot = [];
             let label = 'Select a tab';
             let sourceData;
+            let itemKeyToPlot;
+            let typeToUse; // Will be 'game', 'threejs', or 'nodeCounts'
 
-            // Determine data source based on the active tab
-            if (currentActiveTabId === 'gameConstructorsTab') {
+            // Determine source data type based on passed type or active tab
+            if (type) {
+                // Type provided by click handler
+                typeToUse = type;
+            } else {
+                // Type determined by active tab (map tab ID to simple type)
+                if (currentActiveTabId === 'gameConstructorsTab') {
+                    typeToUse = 'game';
+                } else if (currentActiveTabId === 'threeConstructorsTab') {
+                    typeToUse = 'threejs';
+                } else if (currentActiveTabId === 'nodeCountsTab') {
+                    typeToUse = 'nodeCounts';
+                } else {
+                     typeToUse = null; // Should not happen
+                }
+            }
+
+            // Select source data based on the standardized typeToUse
+            if (typeToUse === 'game') {
                 sourceData = processedData.gameCounts;
-                label = 'Game Object Counts';
-            } else if (currentActiveTabId === 'threeConstructorsTab') {
+            } else if (typeToUse === 'threejs') {
                 sourceData = processedData.threejsCounts;
-                label = 'Engine Object Counts';
-            } else if (currentActiveTabId === 'nodeCountsTab') {
+            } else if (typeToUse === 'nodeCounts') {
                 sourceData = processedData.nodeCounts;
-                label = 'Basic Counts';
+            } else {
+                console.warn(`Unknown item type derived for chart: ${typeToUse}`);
+                sourceData = null;
             }
 
             if (!sourceData || Object.keys(sourceData).length === 0) {
-                 console.log(`No data available for tab ${currentActiveTabId}`);
-                 // Optionally clear the chart or display a message
-                 reportChart.data.labels = [];
-                 reportChart.data.datasets[0].data = [];
-                 reportChart.data.datasets[0].label = 'No data available';
-                 reportChart.options.plugins.title.text = 'No data available for this tab';
-                 reportChart.update();
-                 return;
+                // Handle case where data for the type is missing
+                console.log(`No data available for type ${typeToUse}`);
+                // Clear the chart or display a message
+                reportChart.data.labels = [];
+                reportChart.data.datasets[0].data = [];
+                reportChart.data.datasets[0].label = 'No data available';
+                reportChart.options.plugins.title.text = 'No data available for this tab';
+                reportChart.update();
+                return;
             }
 
-            // Get the first key (item name) from the sorted keys of the source data
-            const firstItemKey = Object.keys(sourceData).sort()[0];
-            dataToPlot = sourceData[firstItemKey] || []; // Get the array of counts
-            label = `${firstItemKey} Count`; // Use the specific item name as the label
+            // Determine the specific item key to plot
+            if (key && sourceData[key]) {
+                // If a specific key is provided and exists in the source data, use it
+                itemKeyToPlot = key;
+                // Update the tracked item using the STANDARDIZED type
+                currentChartItem = { type: typeToUse, key: itemKeyToPlot };
+            } else {
+                // Otherwise, default based on the table's default sort (Count Descending)
+                const defaultSortField = sortState[typeToUse]?.field || 'count'; // Usually 'count'
+                const defaultSortDir = sortState[typeToUse]?.direction || 'desc'; // Usually 'desc'
+                // Get the relevant deltas data needed for sortDataKeys
+                let deltasData;
+                 if (typeToUse === 'game') {
+                    deltasData = processedData.gameDeltas;
+                } else if (typeToUse === 'threejs') {
+                    deltasData = processedData.threejsDeltas;
+                } else if (typeToUse === 'nodeCounts') {
+                    deltasData = processedData.nodeDeltas;
+                }
+                const sortedKeys = sortDataKeys(Object.keys(sourceData), sourceData, deltasData, defaultSortField, defaultSortDir);
+                itemKeyToPlot = sortedKeys.length > 0 ? sortedKeys[0] : null;
+
+                if (!itemKeyToPlot) {
+                    // Handle case where no keys could be determined
+                    console.warn(`Could not determine default item to plot for type ${typeToUse}`);
+                     // Clear the chart or display a message
+                     reportChart.data.labels = [];
+                     reportChart.data.datasets[0].data = [];
+                     reportChart.data.datasets[0].label = 'No data available';
+                     reportChart.options.plugins.title.text = 'No data available for this tab';
+                     reportChart.update();
+                    return;
+                }
+                // Update the tracked item for the default case
+                currentChartItem = { type: typeToUse, key: itemKeyToPlot };
+            }
+
+            // Get the data and label for the selected item
+            dataToPlot = sourceData[itemKeyToPlot] || []; // Get the array of counts
+            // Make label more readable (handle node counts case)
+            label = itemKeyToPlot.includes('Count')
+                 ? itemKeyToPlot.replace('Count', ' Count').replace(/([A-Z])/g, ' $1').trim()
+                 : itemKeyToPlot;
 
             // Update chart data and labels
             reportChart.data.labels = processedData.timestamps;
@@ -577,6 +659,9 @@
             reportChart.data.datasets[0].label = label;
             reportChart.options.plugins.title.text = `${label} Over Time`; // Update title
             reportChart.update();
+
+            // Update highlight in table using the determined type and key
+            updateSelectedRowHighlight(typeToUse, itemKeyToPlot);
         }
 
         // --- Sorting Logic ---
@@ -669,6 +754,40 @@
             });
         }
 
+        // --- Table Interaction ---
+        function handleTableItemClick(event) {
+            const targetCell = event.target;
+            if (!targetCell.classList.contains('clickable-item')) {
+                return; // Click wasn't directly on the clickable item cell
+            }
+
+            const targetRow = targetCell.closest('tr');
+            const itemType = targetRow.dataset.itemType;
+            const itemKey = targetRow.dataset.itemKey;
+
+            if (itemType && itemKey) {
+                 // Update chart
+                 updateChart(itemType, itemKey);
+            }
+        }
+
+        function updateSelectedRowHighlight(selectedType = null, selectedKey = null) {
+             // Remove existing highlights
+             document.querySelectorAll('tr.selected-item').forEach(row => {
+                 row.classList.remove('selected-item');
+             });
+
+             // Add highlight to the new row if type and key are provided
+             if (selectedType && selectedKey) {
+                 // Find the row in the currently visible table (or all tables if needed)
+                 // This assumes the row exists in one of the table containers
+                 const rowToHighlight = document.querySelector(`tr[data-item-type="${selectedType}"][data-item-key="${selectedKey}"]`);
+                 if (rowToHighlight) {
+                     rowToHighlight.classList.add('selected-item');
+                 }
+             }
+        }
+
         // --- Initial Load and Start Polling ---
         document.addEventListener('DOMContentLoaded', () => {
              loadReportData(); // Initial load
@@ -680,6 +799,11 @@
              document.querySelectorAll('.sort-controls button').forEach(button => {
                 button.addEventListener('click', handleSortClick);
              });
+
+             // Add event listeners for table item clicks (delegate from containers)
+             nodeCountsTableContainer.addEventListener('click', handleTableItemClick);
+             threeConstructorsTableContainer.addEventListener('click', handleTableItemClick);
+             gameConstructorsTableContainer.addEventListener('click', handleTableItemClick);
 
              // Apply initial sort styles
              updateSortButtonStyles();
