@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Watchdog Report Viewer</title>
+    <!-- Add Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: sans-serif;
@@ -92,34 +94,97 @@
             color: red;
             font-weight: bold;
         }
+        /* Style for chart container */
+        #chartContainer {
+            width: 80%; /* Or desired width */
+            max-width: 900px;
+            margin: 20px auto; /* Center the chart */
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        /* Style for sort buttons */
+        .sort-controls {
+            margin-bottom: 10px;
+            padding: 5px;
+            background-color: #eee;
+            border: 1px solid #ccc;
+            border-bottom: none; /* Attach to table border */
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .sort-controls span {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+        .sort-controls button {
+            padding: 5px 10px;
+            cursor: pointer;
+            border: 1px solid #bbb;
+            background-color: #f9f9f9;
+            border-radius: 3px;
+        }
+        .sort-controls button:hover {
+            background-color: #e9e9e9;
+        }
+        .sort-controls button.active {
+            background-color: #ccc;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
     <h1>Watchdog Report Viewer</h1>
 
+    <!-- Add Canvas for Chart -->
+    <div id="chartContainer">
+        <canvas id="reportChart"></canvas>
+    </div>
+
     <div id="status">Loading reports...</div>
 
     <!-- Tab Links -->
     <div class="tab-container">
         <button class="tab-link active" onclick="openTab(event, 'gameConstructorsTab')">Your Code Objects</button>
-        <button class="tab-link" onclick="openTab(event, 'threeConstructorsTab')">Engine Objects</button>
+        <button class="tab-link" onclick="openTab(event, 'threeConstructorsTab')">THREE.js Engine Objects</button>
         <button class="tab-link" onclick="openTab(event, 'nodeCountsTab')">Basic Counts</button>
     </div>
 
     <!-- Tab Content -->
     <div id="gameConstructorsTab" class="tab-content" style="display: block;">
         <h2>Your Code Objects (Count & Change)</h2>
+        <div class="sort-controls" data-table-type="game">
+            <span>Sort by:</span>
+            <button data-sort-field="name">Name</button>
+            <button data-sort-field="count">Count</button>
+            <button data-sort-field="change">Change</button>
+        </div>
         <div id="gameConstructorsTableContainer"></div>
     </div>
 
     <div id="threeConstructorsTab" class="tab-content">
         <h2>Engine Objects (Count & Change)</h2>
+        <div class="sort-controls" data-table-type="threejs">
+             <span>Sort by:</span>
+            <button data-sort-field="name">Name</button>
+            <button data-sort-field="count">Count</button>
+            <button data-sort-field="change">Change</button>
+        </div>
         <div id="threeConstructorsTableContainer"></div>
     </div>
 
     <div id="nodeCountsTab" class="tab-content">
         <h2>Basic Counts (Count & Change)</h2>
+        <div class="sort-controls" data-table-type="nodeCounts">
+             <span>Sort by:</span>
+            <button data-sort-field="name">Name</button>
+            <button data-sort-field="count">Count</button>
+            <button data-sort-field="change">Change</button>
+        </div>
         <div id="nodeCountsTableContainer"></div>
     </div>
 
@@ -128,6 +193,19 @@
         const nodeCountsTableContainer = document.getElementById('nodeCountsTableContainer');
         const threeConstructorsTableContainer = document.getElementById('threeConstructorsTableContainer');
         const gameConstructorsTableContainer = document.getElementById('gameConstructorsTableContainer');
+        const chartCanvas = document.getElementById('reportChart');
+        let reportChart = null; // Variable to hold the chart instance
+        let currentActiveTabId = 'gameConstructorsTab'; // Track the active tab
+        let lastReportTimestamp = null; // Track the timestamp of the latest report shown
+        let pollIntervalId = null; // To store the interval ID for potential cleanup
+        const POLLING_INTERVAL_MS = 10000; // Check for new reports every 10 seconds
+
+        // --- Sort State --- (Default: Count Descending)
+        const sortState = {
+            game: { field: 'count', direction: 'desc' },
+            threejs: { field: 'count', direction: 'desc' },
+            nodeCounts: { field: 'count', direction: 'desc' }
+        };
 
         let processedData = {
             timestamps: [],
@@ -151,14 +229,23 @@
             }
             document.getElementById(tabName).style.display = "block";
             evt.currentTarget.className += " active";
+
+            // Update the chart when tab changes
+            currentActiveTabId = tabName; // Update tracked tab
+            updateChart();
         }
 
         // --- Fetch and Process Data ---
-        async function loadReportData() {
-            statusDiv.textContent = 'Loading reports from the server...';
-            nodeCountsTableContainer.innerHTML = '';
-            threeConstructorsTableContainer.innerHTML = '';
-            gameConstructorsTableContainer.innerHTML = '';
+        async function loadReportData(isPolling = false) {
+            if (!isPolling) {
+                statusDiv.textContent = 'Loading reports from the server...';
+            } else {
+                // Avoid changing status if just polling in background unless update happens
+            }
+            // Clear containers only if not polling or if update is confirmed needed later
+            // nodeCountsTableContainer.innerHTML = '';
+            // threeConstructorsTableContainer.innerHTML = '';
+            // gameConstructorsTableContainer.innerHTML = '';
 
             try {
                 const response = await fetch('/api/reports');
@@ -183,12 +270,54 @@
                 renderNodeCountsTable();
                 renderConstructorTable('threejs', threeConstructorsTableContainer);
                 renderConstructorTable('game', gameConstructorsTableContainer);
+                initializeChart();
+                updateChart();
 
-                statusDiv.textContent = `Loaded ${reports.length} reports.`;
+                // Update last timestamp (use the last report in the reversed array, which is the newest)
+                lastReportTimestamp = new Date(reports[reports.length - 1].timestamp).getTime();
+                const lastTimestampReadable = new Date(lastReportTimestamp).toLocaleString();
+                statusDiv.textContent = `Loaded ${reports.length} reports. Last update: ${lastTimestampReadable}`; // Update status
 
             } catch (error) {
                 console.error('Error loading or processing report data:', error);
                 statusDiv.textContent = `Error: ${error.message}`;
+                // Stop polling on error?
+                // if (pollIntervalId) clearInterval(pollIntervalId);
+            }
+            updateSortButtonStyles(); // Ensure buttons reflect state after load
+        }
+
+        // --- Polling Function ---
+        async function pollForUpdates() {
+            // console.log("Polling for updates..."); // Optional debug log
+            try {
+                const response = await fetch('/api/reports');
+                if (!response.ok) {
+                    // Log error but don't necessarily stop polling unless it's fatal
+                    console.warn(`Polling failed: HTTP error! Status: ${response.status}`);
+                    return;
+                }
+                const latestReports = await response.json(); // Server sorts newest first
+
+                if (!Array.isArray(latestReports) || latestReports.length === 0) {
+                    // No reports yet or empty response, keep polling
+                    return;
+                }
+
+                const newestTimestamp = new Date(latestReports[0].timestamp).getTime();
+
+                // If it's the first load or the newest report is newer than the last one shown
+                if (lastReportTimestamp === null || newestTimestamp > lastReportTimestamp) {
+                    console.log('New report data detected, reloading...');
+                    statusDiv.textContent = 'New data detected, updating...'; // Indicate update
+                    await loadReportData(true); // Reload data, indicate it's from polling
+                } else {
+                    // console.log("No new data detected."); // Optional debug log
+                }
+
+            } catch (error) {
+                console.error('Error during polling:', error);
+                // Decide whether to stop polling on error
             }
         }
 
@@ -305,7 +434,10 @@
             // Sort keys for consistent row order
             const sortedKeys = Object.keys(nodeCounts).sort();
 
-            sortedKeys.forEach(key => {
+            // Sort keys based on current state
+            const sortedRowKeys = sortDataKeys(sortedKeys, processedData.nodeCounts, processedData.nodeDeltas, sortState.nodeCounts.field, sortState.nodeCounts.direction);
+
+            sortedRowKeys.forEach(key => {
                      const header = key.replace('Count', ' Count');
                  tableHTML += `<tr><td>${header.charAt(0).toUpperCase() + header.slice(1)}</td>`;
                  for (let i = 0; i < timestamps.length; i++) {
@@ -329,6 +461,7 @@
             const { timestamps } = processedData;
             const constructorCounts = (type === 'threejs') ? processedData.threejsCounts : processedData.gameCounts;
             const constructorDeltas = (type === 'threejs') ? processedData.threejsDeltas : processedData.gameDeltas;
+            const currentSortState = (type === 'threejs') ? sortState.threejs : sortState.game;
 
             if (timestamps.length === 0 || Object.keys(constructorCounts).length === 0) {
                 container.innerHTML = `<p>No ${type} constructor data available.</p>`;
@@ -339,10 +472,11 @@
             timestamps.forEach(ts => tableHTML += `<th>${ts}</th>`);
             tableHTML += '</tr></thead><tbody>';
 
-            // Sort keys for consistent row order
-            const sortedKeys = Object.keys(constructorCounts).sort();
+            // Sort keys based on current state
+            const unsortedKeys = Object.keys(constructorCounts);
+            const sortedRowKeys = sortDataKeys(unsortedKeys, constructorCounts, constructorDeltas, currentSortState.field, currentSortState.direction);
 
-            sortedKeys.forEach(key => {
+            sortedRowKeys.forEach(key => {
                 tableHTML += `<tr><td>${key}</td>`;
                 for (let i = 0; i < timestamps.length; i++) {
                     const count = constructorCounts[key][i];
@@ -361,8 +495,195 @@
             container.innerHTML = tableHTML;
         }
 
-        // --- Initial Load ---
-        document.addEventListener('DOMContentLoaded', loadReportData);
+        // --- Chart Functions ---
+        function initializeChart() {
+            if (reportChart) {
+                reportChart.destroy(); // Destroy existing chart if any
+            }
+            const ctx = chartCanvas.getContext('2d');
+            reportChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [], // Timestamps will go here
+                    datasets: [{
+                        label: 'Count over time', // Default label
+                        data: [], // Data points will go here
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: true, // Adjust as needed
+                    plugins: {
+                       legend: {
+                           display: true
+                       },
+                       title: {
+                            display: true,
+                            text: 'Selected Item Count Over Time' // Default title
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            if (!reportChart || !processedData.timestamps.length) {
+                 console.log("Chart or data not ready for update.");
+                 return; // Don't update if chart isn't initialized or no data
+            }
+
+            let dataToPlot = [];
+            let label = 'Select a tab';
+            let sourceData;
+
+            // Determine data source based on the active tab
+            if (currentActiveTabId === 'gameConstructorsTab') {
+                sourceData = processedData.gameCounts;
+                label = 'Game Object Counts';
+            } else if (currentActiveTabId === 'threeConstructorsTab') {
+                sourceData = processedData.threejsCounts;
+                label = 'Engine Object Counts';
+            } else if (currentActiveTabId === 'nodeCountsTab') {
+                sourceData = processedData.nodeCounts;
+                label = 'Basic Counts';
+            }
+
+            if (!sourceData || Object.keys(sourceData).length === 0) {
+                 console.log(`No data available for tab ${currentActiveTabId}`);
+                 // Optionally clear the chart or display a message
+                 reportChart.data.labels = [];
+                 reportChart.data.datasets[0].data = [];
+                 reportChart.data.datasets[0].label = 'No data available';
+                 reportChart.options.plugins.title.text = 'No data available for this tab';
+                 reportChart.update();
+                 return;
+            }
+
+            // Get the first key (item name) from the sorted keys of the source data
+            const firstItemKey = Object.keys(sourceData).sort()[0];
+            dataToPlot = sourceData[firstItemKey] || []; // Get the array of counts
+            label = `${firstItemKey} Count`; // Use the specific item name as the label
+
+            // Update chart data and labels
+            reportChart.data.labels = processedData.timestamps;
+            reportChart.data.datasets[0].data = dataToPlot;
+            reportChart.data.datasets[0].label = label;
+            reportChart.options.plugins.title.text = `${label} Over Time`; // Update title
+            reportChart.update();
+        }
+
+        // --- Sorting Logic ---
+        function sortDataKeys(keys, countsData, deltasData, field, direction) {
+            return keys.sort((keyA, keyB) => {
+                let valA, valB;
+                const lastIndex = processedData.timestamps.length - 1;
+
+                if (field === 'name') {
+                    valA = keyA.toLowerCase();
+                    valB = keyB.toLowerCase();
+                } else if (field === 'count') {
+                    // Use count from the last report
+                    valA = countsData[keyA]?.[lastIndex] ?? 0;
+                    valB = countsData[keyB]?.[lastIndex] ?? 0;
+                } else if (field === 'change') {
+                    // Use delta from the last report
+                    valA = deltasData[keyA]?.[lastIndex] ?? 0;
+                    valB = deltasData[keyB]?.[lastIndex] ?? 0;
+                }
+
+                let compare = 0;
+                if (valA < valB) {
+                    compare = -1;
+                } else if (valA > valB) {
+                    compare = 1;
+                }
+
+                // Apply direction
+                if (direction === 'desc') {
+                    compare *= -1;
+                }
+
+                // Tie-breaker: alphabetical name (always ascending)
+                if (compare === 0 && field !== 'name') {
+                    return keyA.toLowerCase().localeCompare(keyB.toLowerCase());
+                }
+
+                return compare;
+            });
+        }
+
+        function handleSortClick(event) {
+            const button = event.target;
+            const sortControls = button.closest('.sort-controls');
+            const tableType = sortControls.dataset.tableType; // 'game', 'threejs', 'nodeCounts'
+            const field = button.dataset.sortField; // 'name', 'count', 'change'
+
+            if (!tableType || !field) return;
+
+            // Determine new direction
+            let direction = 'asc';
+            if (sortState[tableType].field === field && sortState[tableType].direction === 'asc') {
+                direction = 'desc';
+            } // If different field or currently desc, switch to asc
+
+            // Update state
+            sortState[tableType] = { field, direction };
+
+            // Update button styles
+            updateSortButtonStyles(sortControls, tableType);
+
+            // Re-render the appropriate table
+            if (tableType === 'game') {
+                renderConstructorTable('game', gameConstructorsTableContainer);
+            } else if (tableType === 'threejs') {
+                renderConstructorTable('threejs', threeConstructorsTableContainer);
+            } else if (tableType === 'nodeCounts') {
+                renderNodeCountsTable();
+            }
+        }
+
+        function updateSortButtonStyles(container = null, type = null) {
+            const containers = container ? [container] : document.querySelectorAll('.sort-controls');
+
+            containers.forEach(cont => {
+                const currentType = type || cont.dataset.tableType;
+                if (!currentType) return;
+
+                const buttons = cont.querySelectorAll('button');
+                buttons.forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.textContent = btn.dataset.sortField.charAt(0).toUpperCase() + btn.dataset.sortField.slice(1); // Reset text
+                    if (btn.dataset.sortField === sortState[currentType].field) {
+                        btn.classList.add('active');
+                        // Add indicator for direction
+                        btn.textContent += sortState[currentType].direction === 'asc' ? ' ▲' : ' ▼';
+                    }
+                });
+            });
+        }
+
+        // --- Initial Load and Start Polling ---
+        document.addEventListener('DOMContentLoaded', () => {
+             loadReportData(); // Initial load
+             // Start polling after initial load
+             if (pollIntervalId) clearInterval(pollIntervalId); // Clear previous just in case
+             pollIntervalId = setInterval(pollForUpdates, POLLING_INTERVAL_MS);
+
+             // Add event listeners to sort buttons
+             document.querySelectorAll('.sort-controls button').forEach(button => {
+                button.addEventListener('click', handleSortClick);
+             });
+
+             // Apply initial sort styles
+             updateSortButtonStyles();
+        });
 
     </script>
 
