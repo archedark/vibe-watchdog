@@ -88,7 +88,7 @@ The hosted service offers:
 
 We built this tool with vibe coders in mind, and your feedback is invaluable. Have ideas or run into issues?
 
-- Create a [GitHub Issue](https://github.com/your-username/vibe-watchdog/issues)
+- Create a [GitHub Issue](https://github.com/archedark/vibe-watchdog/issues)
 - Contribute with pull requests
 - Say hi on X [@archedark_](https://x.com/archedark_)
 
