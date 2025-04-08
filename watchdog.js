@@ -479,7 +479,7 @@ async function runWatchdog() {
                     if (nodeNameIndex < 0 || nodeNameIndex >= strings.length) continue; 
                     const ownerNodeName = strings[nodeNameIndex]; 
 
-                    // --- Count Node by Name (No more node structure logging needed here) ---
+                    // --- Count Node by Name (Basic Types) ---
                     if (nodeTypeName === 'object') {
                         let matchedBaseType = null;
                         let countKey = null;
@@ -501,75 +501,75 @@ async function runWatchdog() {
                         if (countKey) {
                             counts[countKey]++;
                         }
-                    }
 
-                    // --- Process Outgoing Edges for Constructor Analysis --- 
+                        // --- Constructor Analysis (Using Owner Node Name) ---
+                        const instanceName = ownerNodeName; // Use the instance node's name
+
+                        // Apply Filters to the instance name
+                        let isRelevantInstance = true;
+                        if (jsBuiltIns.has(instanceName) ||
+                            instanceName.startsWith('(') || instanceName.startsWith('system /') || instanceName.startsWith('v8') ||
+                            webglInternalsExclude.has(instanceName) ||
+                            browserApiExcludes.has(instanceName) ||
+                            domExcludes.has(instanceName) ||
+                            threeHelpersExclude.has(instanceName) ||
+                            threeLoadersExclude.has(instanceName) ||
+                            threeMathExclude.has(instanceName) ||
+                            threeCurvesExclude.has(instanceName) ||
+                            typedArrayAndAttributesExclude.has(instanceName) ||
+                            otherLibsExclude.has(instanceName) ||
+                            (instanceName.length <= 2 && instanceName !== '_') ||
+                            manualMiscExcludes.has(instanceName) ||
+                            // Add extra check: Often internal/system objects might have spaces or slashes
+                            instanceName.includes(' ') || instanceName.includes('/') ||
+                            // Exclude the basic node count types we already track separately
+                            (matchedBaseType !== null) )
+                        {
+                            isRelevantInstance = false;
+                        }
+
+                        // Categorize and Increment Count based on instance name
+                        if (isRelevantInstance) {
+                             if (knownThreejsTypes.has(instanceName)) {
+                                threejsConstructorCounts[instanceName] = (threejsConstructorCounts[instanceName] || 0) + 1;
+                            } else {
+                                // Assumed game-specific if relevant and not Three.js or basic type
+                                gameConstructorCounts[instanceName] = (gameConstructorCounts[instanceName] || 0) + 1;
+                            }
+                            // miscConstructorCounts remains unused for now
+                        }
+                    } // End if (nodeTypeName === 'object')
+
+                    // --- Original Edge Processing Logic (COMMENTED OUT FOR NOW - Might be needed for other analysis later) ---
+                    /*
                     const currentEdgeEnd = edgeCursor + edgeCount * edgeFieldCount;
                     while(edgeCursor < currentEdgeEnd && edgeCursor < edges.length) {
                         const edgeTypeIndex = edges[edgeCursor + edgeTypeOffset];
-                        const edgeNameOrIndex = edges[edgeCursor + edgeNameOrIndexOffset]; 
-                        const toNodeOffsetInNodesArray = edges[edgeCursor + edgeToNodeOffset]; 
+                        const edgeNameOrIndex = edges[edgeCursor + edgeNameOrIndexOffset];
+                        const toNodeOffsetInNodesArray = edges[edgeCursor + edgeToNodeOffset];
 
                         if (edgeTypeIndex >= 0 && edgeTypeIndex < edgeTypes.length) {
                             const edgeTypeName = edgeTypes[edgeTypeIndex];
 
-                            if (edgeTypeName === 'property') {
-                                 let propName = "(invalid_name_index)";
-                                 if (edgeNameOrIndex >= 0 && edgeNameOrIndex < strings.length) {
-                                    propName = strings[edgeNameOrIndex];
-                                 }
-
-                                 if (propName === 'constructor') {
-                                    const targetNodeNameFieldIndex = toNodeOffsetInNodesArray + nodeNameOffset;
-                                    if (targetNodeNameFieldIndex >= 0 && targetNodeNameFieldIndex < nodes.length) {
-                                        const targetNodeNameIndex = nodes[targetNodeNameFieldIndex];
-                                        if (targetNodeNameIndex >= 0 && targetNodeNameIndex < strings.length) {
-                                            const targetConstructorName = strings[targetNodeNameIndex];
-
-                                            // --- Apply Filters --- 
-                                            let isRelevantConstructor = true; 
-
-                                            if (jsBuiltIns.has(targetConstructorName) ||
-                                                targetConstructorName.startsWith('(') || targetConstructorName.startsWith('system /') || targetConstructorName.startsWith('v8') ||
-                                                webglInternalsExclude.has(targetConstructorName) ||
-                                                browserApiExcludes.has(targetConstructorName) ||
-                                                domExcludes.has(targetConstructorName) ||
-                                                threeHelpersExclude.has(targetConstructorName) ||
-                                                threeLoadersExclude.has(targetConstructorName) ||
-                                                threeMathExclude.has(targetConstructorName) ||
-                                                threeCurvesExclude.has(targetConstructorName) ||
-                                                typedArrayAndAttributesExclude.has(targetConstructorName) ||
-                                                otherLibsExclude.has(targetConstructorName) ||
-                                                (targetConstructorName.length <= 2 && targetConstructorName !== '_') || 
-                                                // *** ADD CHECK FOR MANUAL EXCLUDES ***
-                                                manualMiscExcludes.has(targetConstructorName) )
-                                            {
-                                                isRelevantConstructor = false;
-                                            } 
-                                            // Optional: Add heuristic for names suggesting internals even if not explicitly excluded?
-                                            // else if (targetConstructorName.endsWith('Loader') || targetConstructorName.endsWith('Helper') || targetConstructorName.endsWith('Manager') || targetConstructorName.endsWith('Extension')) {
-                                            //     // Consider if we want to exclude these generic patterns too
-                                            // }
-
-                                            // --- Categorize and Increment Count --- 
-                                            if (isRelevantConstructor) {
-                                                if (knownThreejsTypes.has(targetConstructorName)) {
-                                                    threejsConstructorCounts[targetConstructorName] = (threejsConstructorCounts[targetConstructorName] || 0) + 1;
-                                                } else {
-                                                    // Assumed game-specific if relevant and not Three.js
-                                                    gameConstructorCounts[targetConstructorName] = (gameConstructorCounts[targetConstructorName] || 0) + 1;
-                                                }
-                                                // miscConstructorCounts remains unused for now
-                                            }
-                                        }
-                                    }
-                                 }
-                            }
+                            // Example: Find 'constructor' property (original logic, now handled above)
+                            // if (edgeTypeName === 'property') {
+                            //     let propName = "(invalid_name_index)";
+                            //     if (edgeNameOrIndex >= 0 && edgeNameOrIndex < strings.length) {
+                            //         propName = strings[edgeNameOrIndex];
+                            //     }
+                            //     if (propName === 'constructor') {
+                            //         // ... logic to find target node name ...
+                            //     }
+                            // }
                         }
-                        edgeCursor += edgeFieldCount; 
+                        edgeCursor += edgeFieldCount;
                     }
-                     edgeCursor = currentEdgeEnd; // Ensure cursor is correct after loop
-                }
+                    edgeCursor = currentEdgeEnd; // Ensure cursor is correct after loop
+                    */
+                   // Advance edge cursor manually since the loop is commented out
+                   edgeCursor += edgeCount * edgeFieldCount;
+
+                } // End node loop
 
                 // --- Log Constructor Analysis (Categorized) --- 
                 const logCategory = (title, categoryCounts) => {
