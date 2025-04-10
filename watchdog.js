@@ -1,18 +1,16 @@
-const puppeteer = require('puppeteer');
-const getConfig = require('./src/config.js'); // Import the config module
-const ReportManager = require('./src/report-manager.js'); // Require ReportManager
-const serverManager = require('./src/server.js'); // Require the server module
-const fs = require('fs').promises; // Added for file system operations
-const path = require('path'); // Added for path manipulation
-const { analyzeSnapshot } = require('./src/analyzer.js'); // Require the analyzer function
-const { takeSnapshot } = require('./src/snapshotter.js'); // Require the snapshotter function
-
-// --- Config is now handled in config.js ---
+// const puppeteer = require('puppeteer'); // Moved to browser-manager
+const getConfig = require('./src/config.js');
+const ReportManager = require('./src/report-manager.js');
+const serverManager = require('./src/server.js');
+const { analyzeSnapshot } = require('./src/analyzer.js');
+const { takeSnapshot } = require('./src/snapshotter.js');
+const browserManager = require('./src/browser-manager.js'); // Require browser manager
+const path = require('path');
 
 // --- Run the watchdog ---
 async function runWatchdog() {
-    const config = getConfig(); // Get configuration object
-    const reportManager = new ReportManager(__dirname); // Instantiate ReportManager
+    const config = getConfig();
+    const reportManager = new ReportManager(__dirname);
 
     console.log(`Starting Watchdog for URL: ${config.targetUrl}`);
     console.log(`Headless mode: ${config.isHeadless}`);
@@ -22,63 +20,47 @@ async function runWatchdog() {
     console.log(`Report viewer server starting on port: ${config.serverPort}`); // Log server port
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
 
-    // Reports directory is now managed by ReportManager
-    let server; // Keep server variable to hold the instance
-    let browser;
-    let intervalId; // Declare intervalId for cleanup
+    let server = null; // Initialize server to null
+    let browser = null; // Initialize browser to null
+    let intervalId = null; // Initialize intervalId to null
+    // Remove gamePage, cdpSession declarations here, they are returned by initializeBrowser
 
     try {
         // --- Initialize Report Directory ---
         await reportManager.initializeDirectory();
 
-        // --- Clear Reports Logic (using ReportManager) ---
+        // --- Clear Reports Logic ---
         if (config.clearReports) {
-            console.log('--clear-reports flag detected.'); // Log simplified message
+            console.log('--clear-reports flag detected.');
             await reportManager.clearReports();
         }
-        // --- End Clear Reports Logic ---
 
-        // --- Start the Server (using server.js) ---
-        server = serverManager.startServer(config, reportManager, __dirname); // Start server and store instance
+        // --- Start the Server ---
+        server = serverManager.startServer(config, reportManager, __dirname);
 
-        // Start the server *before* launching Puppeteer
-        browser = await puppeteer.launch({ 
-            headless: config.isHeadless, // Use config value
-            defaultViewport: null,
-        });
-        // Get initial page (often about:blank) and navigate it to the report viewer
-        const initialPages = await browser.pages();
-        const reportViewerPage = initialPages.length > 0 ? initialPages[0] : await browser.newPage(); // Reuse or create
-        try {
-            console.log(`Navigating initial tab to report viewer: http://localhost:${config.serverPort}`); // Use config value
-            await reportViewerPage.goto(`http://localhost:${config.serverPort}`, { waitUntil: 'networkidle0' }); // Use config value
-        } catch (viewerNavError) {
-             console.warn(`Warning: Failed to navigate initial tab to report viewer: ${viewerNavError.message}`);
-             // Continue execution even if the viewer fails to load
-        }
+        // --- Initialize Browser and Pages ---
+        const { 
+            browser: browserInstance, 
+            // reportViewerPage, // Not directly used after init currently
+            gamePage, 
+            cdpSession 
+        } = await browserManager.initializeBrowser(config);
+        browser = browserInstance; // Assign to the function-scoped variable for cleanup
+        
+        // --- Remove Browser Launch Logic --- 
+        // browser = await puppeteer.launch({...});
+        // --- Remove Page Creation/Navigation Logic ---
+        // const initialPages = await browser.pages();
+        // reportViewerPage = ... await browser.newPage();
+        // await reportViewerPage.goto(...);
+        // gamePage = await browser.newPage();
+        // await gamePage.goto(...);
+        // --- Remove CDP Session Creation/Enabling --- 
+        // cdpSession = await gamePage.target().createCDPSession();
+        // await cdpSession.send('HeapProfiler.enable');
 
-        // Now create a new page for the target game/app
-        const gamePage = await browser.newPage();
-
-        console.log(`Navigating new tab to ${config.targetUrl}...`); // Use config value
-        await gamePage.goto(config.targetUrl, { waitUntil: 'networkidle0' }); // Use config value
-        console.log('Game page loaded successfully.');
-
-        // Steps 3-10 will go here...
-        console.log('Connecting to DevTools Protocol on game page...');
-        // Ensure CDP session is attached to the GAME PAGE
-        const cdpSession = await gamePage.target().createCDPSession();
-
-        await cdpSession.send('HeapProfiler.enable');
-        console.log('HeapProfiler enabled.');
-
-        // Step 7: Robust Snapshot Parsing (Graph Traversal + Constructor Finding)
-        // --- The analyzeSnapshot function and its associated constants
-        //     (typeToCountKey, knownThreejsTypes, jsBuiltIns, webglInternalsExclude, 
-        //      browserApiExcludes, domExcludes, threeHelpersExclude, threeLoadersExclude,
-        //      threeMathExclude, threeCurvesExclude, typedArrayAndAttributesExclude,
-        //      otherLibsExclude, manualMiscExcludes, etc.)
-        //     have been moved to src/analyzer.js ---
+        // --- Snapshotter (takeSnapshot) and Analyzer (analyzeSnapshot) --- 
+        // --- use the cdpSession returned from initializeBrowser ---
 
         // --- RE-ADD calculateConstructorDelta function --- 
         // Kept here for now as it depends on the analysis structure
@@ -106,16 +88,16 @@ async function runWatchdog() {
 
         // Take Initial Snapshot & Analysis
         console.log('\n--- Initial Snapshot ---');
-        const initialSnapshotData = await takeSnapshot(cdpSession); // Call imported function
-        let initialAnalysisResult = analyzeSnapshot(initialSnapshotData); // Call imported function
+        const initialSnapshotData = await takeSnapshot(cdpSession); // Pass the obtained cdpSession
+        let initialAnalysisResult = analyzeSnapshot(initialSnapshotData);
         // For the first report, delta is the counts themselves
         const initialReportData = {
             nodeCounts: initialAnalysisResult.nodeCounts,
             constructorCounts: initialAnalysisResult.constructorCounts,
             constructorCountsDelta: calculateConstructorDelta(initialAnalysisResult.constructorCounts, null) // Delta is initial count
         };
-        await reportManager.saveReport(initialReportData, config.maxReports); // Use ReportManager method
-        let previousAnalysisResult = initialAnalysisResult; // Use the full result object from analyzeSnapshot
+        await reportManager.saveReport(initialReportData, config.maxReports);
+        let previousAnalysisResult = initialAnalysisResult;
         console.log('--- Initial Snapshot End ---');
 
         // State for leak detection heuristic
@@ -127,44 +109,37 @@ async function runWatchdog() {
         let groupIncreaseStreak = 0;
 
         // Step 5: Implement Snapshot Interval
-        console.log(`\nSetting snapshot interval to ${config.interval}ms`); // Use config value
-        // Assign interval to the previously declared variable
+        console.log(`\nSetting snapshot interval to ${config.interval}ms`);
         intervalId = setInterval(async () => {
             console.log('\n--- Interval Start ---');
-            let snapshotDataString = null; // Initialize to null
-            try { // Add try/catch around snapshot taking
-                // Step 6: Retrieve snapshot data
-                snapshotDataString = await takeSnapshot(cdpSession); // Call imported function
+            let snapshotDataString = null;
+            try {
+                snapshotDataString = await takeSnapshot(cdpSession); // Pass the obtained cdpSession
             } catch (snapshotError) {
                 console.error(`Error taking snapshot: ${snapshotError.message}`);
-                // Decide if we should stop the interval or just skip this iteration
-                // For now, just log and continue the interval
                 console.log('--- Interval End (skipped analysis due to snapshot error) ---');
-                return; // Skip the rest of the interval function
+                return;
             }
 
             let currentAnalysisResult = null;
-            let reportData = null; // Initialize reportData
+            let reportData = null;
 
             if (snapshotDataString) {
                 console.log(`Received snapshot data: ${Math.round(snapshotDataString.length / 1024)} KB`);
-                // Step 7: Analyze snapshot
-                currentAnalysisResult = analyzeSnapshot(snapshotDataString); // Call imported function
+                currentAnalysisResult = analyzeSnapshot(snapshotDataString);
 
-                // Calculate Delta
                 const delta = calculateConstructorDelta(
                     currentAnalysisResult.constructorCounts,
-                    previousAnalysisResult?.constructorCounts // Pass previous counts safely
+                    previousAnalysisResult?.constructorCounts
                 );
 
-                // Prepare data for the report
                 reportData = {
                     nodeCounts: currentAnalysisResult.nodeCounts,
                     constructorCounts: currentAnalysisResult.constructorCounts,
                     constructorCountsDelta: delta
                 };
 
-                await reportManager.saveReport(reportData, config.maxReports); // Use ReportManager method
+                await reportManager.saveReport(reportData, config.maxReports);
             }
 
             // Step 8 & 9: Comparison Logic & Leak Detection Heuristic
@@ -278,50 +253,41 @@ async function runWatchdog() {
             // Update previousAnalysisResult for the next interval
             previousAnalysisResult = currentAnalysisResult || previousAnalysisResult; 
             console.log('--- Interval End ---');
-        }, config.interval); // Use config value
-
-        // Keep the browser open while the interval is running
-        // Cleanup logic needs to handle stopping the interval and closing the browser
-
-        // The process will now stay alive due to the interval AND the server
-        // await browser.close(); // Will be moved to cleanup logic
+        }, config.interval);
 
     } catch (error) {
-        console.error('Error during browser operation or server startup:', error.message);
-        if (intervalId) clearInterval(intervalId); // Clear interval on error
-        // --- Stop server on error (using server.js) ---
+        // Error handler already catches errors from initializeBrowser
+        console.error('Watchdog failed to start or encountered a fatal error:', error.message); 
+        // Cleanup interval if it was set
+        if (intervalId) clearInterval(intervalId);
+        // Cleanup server if it was started
         if (server) {
-            await serverManager.stopServer(server).catch(err => console.error('Error stopping server during cleanup:', err)); // Add error handling for stop
+            await serverManager.stopServer(server).catch(err => console.error('Error stopping server during error cleanup:', err)); 
         }
-        if (browser) {
-            await browser.close();
-        }
-        process.exit(1); // Exit if browser setup or navigation fails
+        // Browser cleanup is handled within initializeBrowser on init failure,
+        // or here if the error happened after successful browser init.
+        if (browser) { // Check if browser was successfully initialized before the error
+             await browserManager.closeBrowser(browser); 
+        } 
+        process.exit(1);
     }
 }
 
 runWatchdog();
+
 // Basic cleanup on exit
 process.on('SIGINT', async () => {
-    console.log('Received SIGINT. Closing browser, stopping interval and server...');
-    // Add cleanup logic here if browser is accessible globally or passed around
-    // Need to clear the interval and close the browser properly
-    // For now, we rely on the main function's try/catch, but proper cleanup needed later
+    console.log('Received SIGINT. Preparing to shutdown...');
+    // Proper cleanup requires access to server, browser, intervalId.
+    // This will be handled cleanly by the Watchdog class in later steps.
+    console.warn("Cleanup on SIGINT is currently limited. Use Watchdog class for full resource management.");
+    
+    // Attempt basic exit for now
+    // We can't reliably access `browser` or `server` or `intervalId` here yet.
+    // await browserManager.closeBrowser(browser); // Needs access to `browser`
+    // await serverManager.stopServer(server); // Needs access to `server`
+    // clearInterval(intervalId); // Needs access to `intervalId`
 
-    // Proper Cleanup Attempt: (Needs access to intervalId, browser, server)
-    // Need to make intervalId, browser, and server accessible here.
-    // A simple way is to declare them outside runWatchdog, but this pollutes global scope.
-    // A better way involves structuring the app differently, maybe using classes or modules.
-    // For now, we'll rely on the OS cleaning up, but this is not ideal.
-
-    // --- Add Server Shutdown to SIGINT --- 
-    // This part needs access to the `server` variable. We will address this properly
-    // when introducing the Watchdog class. For now, it won't automatically close on SIGINT.
-    // if (server) await serverManager.stopServer(server); 
-
-    // if (intervalId) clearInterval(intervalId); // Needs interval
-    // if (browser) await browser.close(); // Needs browser
-    console.warn("Cleanup on SIGINT is basic. Ensure resources are closed if errors occur before full setup. Server might not close automatically on Ctrl+C yet.");
     process.exit(0);
 });
 
