@@ -5,6 +5,7 @@ const serverManager = require('./src/server.js'); // Require the server module
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
 const { analyzeSnapshot } = require('./src/analyzer.js'); // Require the analyzer function
+const { takeSnapshot } = require('./src/snapshotter.js'); // Require the snapshotter function
 
 // --- Config is now handled in config.js ---
 
@@ -71,83 +72,6 @@ async function runWatchdog() {
         await cdpSession.send('HeapProfiler.enable');
         console.log('HeapProfiler enabled.');
 
-        // Function to take a heap snapshot (more robust waiting)
-        async function takeSnapshot(session) {
-            console.log('Taking heap snapshot...');
-            const SNAPSHOT_TIMEOUT_MS = 60000; // 60 seconds overall timeout
-            const CHUNK_QUIET_PERIOD_MS = 500; // Wait 500ms after last chunk/finished signal
-
-            return new Promise(async (resolve, reject) => {
-                let chunks = [];
-                let finishedReported = false;
-                let progressListener;
-                let chunkListener;
-                let overallTimeoutId;
-                let quietPeriodTimeoutId = null; // Timeout for waiting after last chunk
-
-                const cleanup = () => {
-                    clearTimeout(overallTimeoutId);
-                    clearTimeout(quietPeriodTimeoutId);
-                    if (chunkListener) session.off('HeapProfiler.addHeapSnapshotChunk', chunkListener);
-                    if (progressListener) session.off('HeapProfiler.reportHeapSnapshotProgress', progressListener);
-                };
-
-                const finalizeSnapshot = () => {
-                    console.log(`Snapshot finalize triggered. Joining ${chunks.length} chunks.`);
-                    cleanup();
-                    resolve(chunks.join(''));
-                };
-
-                overallTimeoutId = setTimeout(() => {
-                    cleanup();
-                    console.error(`Snapshot timed out after ${SNAPSHOT_TIMEOUT_MS / 1000} seconds.`);
-                    reject(new Error('Snapshot timeout'));
-                }, SNAPSHOT_TIMEOUT_MS);
-
-                chunkListener = (event) => {
-                    // Clear any existing quiet period timeout, as we just got a chunk
-                    clearTimeout(quietPeriodTimeoutId);
-
-                    chunks.push(event.chunk);
-                    // console.log(`DEBUG: Received chunk, length: ${event.chunk.length}, total chunks: ${chunks.length}`);
-
-                    // If finished has been reported, set a new timeout to finalize
-                    // If more chunks arrive, this timeout will be cleared and reset
-                    if (finishedReported) {
-                        quietPeriodTimeoutId = setTimeout(finalizeSnapshot, CHUNK_QUIET_PERIOD_MS);
-                    }
-                };
-
-                progressListener = (event) => {
-                    // console.log(`Snapshot progress: ${event.done}/${event.total}`);
-                    if (event.finished) {
-                        console.log(`Snapshot finished reporting (Size ${event.total} reported, may be inaccurate).`);
-                        finishedReported = true;
-                        session.off('HeapProfiler.reportHeapSnapshotProgress', progressListener);
-                        progressListener = null;
-
-                        // Start the quiet period timeout now in case no more chunks arrive *at all*
-                        // or if they arrived before this 'finished' signal
-                        clearTimeout(quietPeriodTimeoutId); // Clear any previous just in case
-                        quietPeriodTimeoutId = setTimeout(finalizeSnapshot, CHUNK_QUIET_PERIOD_MS);
-                    }
-                };
-
-                session.on('HeapProfiler.addHeapSnapshotChunk', chunkListener);
-                session.on('HeapProfiler.reportHeapSnapshotProgress', progressListener);
-
-                try {
-                    console.log('Sending HeapProfiler.takeHeapSnapshot command...');
-                    await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: true, treatGlobalObjectsAsRoots: true }); // Added treatGlobalObjectsAsRoots
-                    // console.log('Snapshot command sent, waiting for progress and chunks...');
-                } catch (err) {
-                    console.error('Error sending takeHeapSnapshot command:', err.message);
-                    cleanup();
-                    reject(err);
-                }
-            });
-        }
-
         // Step 7: Robust Snapshot Parsing (Graph Traversal + Constructor Finding)
         // --- The analyzeSnapshot function and its associated constants
         //     (typeToCountKey, knownThreejsTypes, jsBuiltIns, webglInternalsExclude, 
@@ -182,7 +106,7 @@ async function runWatchdog() {
 
         // Take Initial Snapshot & Analysis
         console.log('\n--- Initial Snapshot ---');
-        const initialSnapshotData = await takeSnapshot(cdpSession); 
+        const initialSnapshotData = await takeSnapshot(cdpSession); // Call imported function
         let initialAnalysisResult = analyzeSnapshot(initialSnapshotData); // Call imported function
         // For the first report, delta is the counts themselves
         const initialReportData = {
@@ -210,7 +134,7 @@ async function runWatchdog() {
             let snapshotDataString = null; // Initialize to null
             try { // Add try/catch around snapshot taking
                 // Step 6: Retrieve snapshot data
-                snapshotDataString = await takeSnapshot(cdpSession);
+                snapshotDataString = await takeSnapshot(cdpSession); // Call imported function
             } catch (snapshotError) {
                 console.error(`Error taking snapshot: ${snapshotError.message}`);
                 // Decide if we should stop the interval or just skip this iteration
