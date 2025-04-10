@@ -1,54 +1,21 @@
 const puppeteer = require('puppeteer');
-const minimist = require('minimist');
+const getConfig = require('./src/config.js'); // Import the config module
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
 const express = require('express'); // Add Express
 
-const args = minimist(process.argv.slice(2));
+// --- Config is now handled in config.js ---
 
-// --- Add Help Function ---
-function showHelp() {
-    console.log(`
-Usage: node watchdog.js --url <your-game-url> [options]
-
-Options:
-  --url <url>          REQUIRED: The URL of the web page/game to monitor.
-  --headless           Run Puppeteer in headless mode (no visible browser window). Default: false.
-  --interval <ms>      The interval (in milliseconds) between heap snapshots. Default: 30000 (30 seconds).
-  --threshold <count>  The number of consecutive increases in a resource count to trigger a potential leak warning. Default: 3.
-  --max-reports <num>  The maximum number of JSON reports to keep in the reports directory. Default: 10.
-  --port <num>         The port number for the report viewer web server. Default: 3000.
-  --clear-reports      Delete all existing reports in the 'reports' directory before starting. Default: false.
-  --help               Show this help message and exit.
-    `);
-    process.exit(0);
-}
-
-if (args.help) {
-    showHelp();
-}
-// --- End Help Function ---
-
-const targetUrl = args.url;
-const isHeadless = args.headless || false; // Default to false (visible browser)
-const interval = args.interval || 10000; // Default to 10 seconds
-const threshold = args.threshold || 3; // Default to 3 consecutive increases
-const maxReports = args['max-reports'] || 20; // Default to 20 reports
-const serverPort = args.port || 1109; // Default port 1109
-
-if (!targetUrl) {
-    console.error('Error: --url parameter is required.');
-    console.log('Usage: node watchdog.js --url <your-game-url> [--headless] [--interval <ms>] [--threshold <count>] [--max-reports <num>] [--port <num>]');
-    process.exit(1);
-}
-
+// --- Run the watchdog ---
 async function runWatchdog() {
-    console.log(`Starting Watchdog for URL: ${targetUrl}`);
-    console.log(`Headless mode: ${isHeadless}`);
-    console.log(`Snapshot interval: ${interval}ms`);
-    console.log(`Leak threshold: ${threshold} increases`);
-    console.log(`Maximum reports to keep: ${maxReports}`); // Log the max reports value
-    console.log(`Report viewer server starting on port: ${serverPort}`); // Log server port
+    const config = getConfig(); // Get configuration object
+
+    console.log(`Starting Watchdog for URL: ${config.targetUrl}`);
+    console.log(`Headless mode: ${config.isHeadless}`);
+    console.log(`Snapshot interval: ${config.interval}ms`);
+    console.log(`Leak threshold: ${config.threshold} increases`);
+    console.log(`Maximum reports to keep: ${config.maxReports}`); // Log the max reports value
+    console.log(`Report viewer server starting on port: ${config.serverPort}`); // Log server port
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
 
     const reportsDir = path.join(__dirname, 'reports'); // Define reports directory
@@ -117,10 +84,10 @@ async function runWatchdog() {
         }
     });
 
-    // --- Add config endpoint ---
+    // --- Add config endpoint --- (Update to use config object)
     app.get('/api/config', (req, res) => {
         res.json({
-            snapshotInterval: interval // Expose the interval value
+            snapshotInterval: config.interval // Expose the interval value from config
         });
     });
 
@@ -128,8 +95,8 @@ async function runWatchdog() {
 
 
     try {
-        // --- Clear Reports Logic ---
-        if (args['clear-reports']) {
+        // --- Clear Reports Logic --- (Update to use config.clearReports)
+        if (config.clearReports) {
             console.log('--clear-reports flag detected. Removing existing reports...');
             try {
                 const files = await fs.readdir(reportsDir);
@@ -163,8 +130,8 @@ async function runWatchdog() {
         console.log(`Reports will be saved to: ${reportsDir}`);
 
         // Start the server *before* launching Puppeteer
-        server = app.listen(serverPort, () => {
-             console.log(`Report viewer available at http://localhost:${serverPort}`);
+        server = app.listen(config.serverPort, () => {
+             console.log(`Report viewer available at http://localhost:${config.serverPort}`);
         });
         server.on('error', (err) => {
             console.error(`Server error: ${err.message}`);
@@ -173,15 +140,15 @@ async function runWatchdog() {
         });
 
         browser = await puppeteer.launch({ 
-            headless: isHeadless,
+            headless: config.isHeadless, // Use config value
             defaultViewport: null,
         });
         // Get initial page (often about:blank) and navigate it to the report viewer
         const initialPages = await browser.pages();
         const reportViewerPage = initialPages.length > 0 ? initialPages[0] : await browser.newPage(); // Reuse or create
         try {
-            console.log(`Navigating initial tab to report viewer: http://localhost:${serverPort}`);
-            await reportViewerPage.goto(`http://localhost:${serverPort}`, { waitUntil: 'networkidle0' });
+            console.log(`Navigating initial tab to report viewer: http://localhost:${config.serverPort}`); // Use config value
+            await reportViewerPage.goto(`http://localhost:${config.serverPort}`, { waitUntil: 'networkidle0' }); // Use config value
         } catch (viewerNavError) {
              console.warn(`Warning: Failed to navigate initial tab to report viewer: ${viewerNavError.message}`);
              // Continue execution even if the viewer fails to load
@@ -190,8 +157,8 @@ async function runWatchdog() {
         // Now create a new page for the target game/app
         const gamePage = await browser.newPage();
 
-        console.log(`Navigating new tab to ${targetUrl}...`);
-        await gamePage.goto(targetUrl, { waitUntil: 'networkidle0' }); // Wait until network is idle
+        console.log(`Navigating new tab to ${config.targetUrl}...`); // Use config value
+        await gamePage.goto(config.targetUrl, { waitUntil: 'networkidle0' }); // Use config value
         console.log('Game page loaded successfully.');
 
         // Steps 3-10 will go here...
@@ -709,7 +676,7 @@ async function runWatchdog() {
             try {
                 await fs.writeFile(filepath, JSON.stringify(reportData, null, 2));
                 console.log(`Report saved: ${filename}`);
-                await manageReports(dir, maxReports); // Pass the configured maxReports value
+                await manageReports(dir, config.maxReports); // Pass the configured maxReports value
             } catch (err) {
                 console.error(`Error saving report ${filename}:`, err.message);
             }
@@ -738,7 +705,7 @@ async function runWatchdog() {
         let groupIncreaseStreak = 0;
 
         // Step 5: Implement Snapshot Interval
-        console.log(`\nSetting snapshot interval to ${interval}ms`);
+        console.log(`\nSetting snapshot interval to ${config.interval}ms`); // Use config value
         // Assign interval to the previously declared variable
         intervalId = setInterval(async () => {
             console.log('\n--- Interval Start ---');
@@ -853,29 +820,29 @@ async function runWatchdog() {
                 }
 
                 // Step 10: Alerting
-                if (geometryIncreaseStreak >= threshold) {
+                if (geometryIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential Geometry Leak Detected! Count increased for ${geometryIncreaseStreak} consecutive snapshots. ***`);
                     // Optional: Reset streak after warning? Or let it keep warning?
                     // geometryIncreaseStreak = 0; // Uncomment to warn only once per threshold breach
                 }
-                if (materialIncreaseStreak >= threshold) {
+                if (materialIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential Material Leak Detected! Count increased for ${materialIncreaseStreak} consecutive snapshots. ***`);
                     // materialIncreaseStreak = 0;
                 }
-                if (textureIncreaseStreak >= threshold) {
+                if (textureIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential Texture Leak Detected! Count increased for ${textureIncreaseStreak} consecutive snapshots. ***`);
                     // textureIncreaseStreak = 0;
                 }
                 // Added Alerts
-                if (renderTargetIncreaseStreak >= threshold) {
+                if (renderTargetIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential RenderTarget Leak Detected! Count increased for ${renderTargetIncreaseStreak} consecutive snapshots. ***`);
                     // renderTargetIncreaseStreak = 0;
                 }
-                if (meshIncreaseStreak >= threshold) {
+                if (meshIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential Mesh Leak Detected! Count increased for ${meshIncreaseStreak} consecutive snapshots. ***`);
                     // meshIncreaseStreak = 0;
                 }
-                if (groupIncreaseStreak >= threshold) {
+                if (groupIncreaseStreak >= config.threshold) { // Use config value
                     console.warn(`*** Potential Group Leak Detected! Count increased for ${groupIncreaseStreak} consecutive snapshots. ***`);
                     // groupIncreaseStreak = 0;
                 }
@@ -889,7 +856,7 @@ async function runWatchdog() {
             // Update previousAnalysisResult for the next interval
             previousAnalysisResult = currentAnalysisResult || previousAnalysisResult; 
             console.log('--- Interval End ---');
-        }, interval);
+        }, config.interval); // Use config value
 
         // Keep the browser open while the interval is running
         // Cleanup logic needs to handle stopping the interval and closing the browser
