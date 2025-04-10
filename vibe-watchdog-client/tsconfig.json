@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    /* Base Options */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "ES2017",
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+
+    /* Module Resolution */
+    "moduleResolution": "bundler", // Explicitly set for modern tooling
+    // "module": "ESNext", // Keep commented, tsup handles module output
+    // "outDir": "dist", // Keep commented, tsup handles output dir
+
+    /* If NOT transpiling with TypeScript (i.e. if using Babel or similar) */
+    // "noEmit": true,
+
+    /* Lib */
+    "lib": ["esnext", "dom", "dom.iterable"],
+
+    /* Declaration Files */
+    "declaration": true, // Generate .d.ts files
+    "declarationMap": true, // Generate sourcemaps for .d.ts files
+    "sourceMap": true, // Generate sourcemaps for .js files
+  },
+  "include": ["src/**/*"], // Only compile files in the src directory
+  "exclude": ["node_modules", "dist"] // Exclude build output and dependencies
+} 

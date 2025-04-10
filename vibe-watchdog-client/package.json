@@ -1,0 +1,34 @@
+{
+  "name": "@vibewatchdog/client",
+  "version": "0.1.0",
+  "description": "Client-side library for Vibe Watchdog monitoring",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs", 
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "threejs",
+    "memory",
+    "monitoring",
+    "leak detection",
+    "performance"
+  ],
+  "author": "Your Name / Vibe Watchdog Team",
+  "license": "MIT", 
+  "devDependencies": {
+    "@types/three": "^0.164.0", 
+    "@typescript-eslint/eslint-plugin": "^7.8.0",
+    "@typescript-eslint/parser": "^7.8.0",
+    "eslint": "^8.57.0",
+    "tsup": "^8.0.2", 
+    "typescript": "^5.4.5"
+  },
+  "peerDependencies": {
+    "three": ">=0.140.0" 
+  }
+} 
