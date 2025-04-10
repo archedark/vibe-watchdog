@@ -39,6 +39,7 @@ In the browser you'll see Vibe Watchdog running at:
 ```
 http://localhost:1109
 ```
+(Note: You can change this port with the `--port` option)
 
 A simple dashboard displays memory usage trends, with visuals to help you spot potential leaks or issues! Play your game and keep an eye on the chart. If some object keeps accumulating, that's a sign that those resources aren't getting cleaned up.
 
@@ -48,16 +49,16 @@ A simple dashboard displays memory usage trends, with visuals to help you spot p
 
 You can customize Vibe Watchdog using these optional parameters:
 
-- `--headless`: Run without opening a visible browser.
+- `--headless`: Run without opening a visible browser (default: false).
 - `--interval <ms>`: Adjust how often memory snapshots are taken (default: 10000ms = 10 seconds).
 - `--threshold <count>`: Number of consecutive resource increases to trigger leak warnings (default: 3).
 - `--max-reports <num>`: Number of snapshots to retain (default: 20).
-- `--port <num>`: Change the web dashboard port (default: 3000).
-- `--clear-reports`: Clear previous reports when starting.
+- `--port <num>`: Change the web dashboard port (default: 1109).
+- `--clear-reports`: Clear previous reports when starting (default: false).
 
 Example with options:
 ```bash
-node watchdog.js --url https://localhost:[YOUR PORT] --max-reports 50 --interval 5000 --threshold 5
+node watchdog.js --url https://localhost:[YOUR PORT] --max-reports 50 --interval 5000 --threshold 5 --port 4500
 ```
 
 ---
