@@ -1,9 +1,9 @@
 const puppeteer = require('puppeteer');
 const getConfig = require('./src/config.js'); // Import the config module
 const ReportManager = require('./src/report-manager.js'); // Require ReportManager
+const serverManager = require('./src/server.js'); // Require the server module
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
-const express = require('express'); // Add Express
 
 // --- Config is now handled in config.js ---
 
@@ -21,55 +21,9 @@ async function runWatchdog() {
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
 
     // Reports directory is now managed by ReportManager
-    const app = express(); // Create Express app
-    let server; // Declare server variable for later cleanup
+    let server; // Keep server variable to hold the instance
     let browser;
     let intervalId; // Declare intervalId for cleanup
-
-    // --- Web Server Setup ---
-    app.get('/', (req, res) => {
-        res.sendFile(path.join(__dirname, 'report-viewer.html'));
-    });
-
-    // --- Serve static assets (like the logo) ---
-    app.use('/assets', express.static(path.join(__dirname, 'assets')));
-
-    // Function to extract timestamp from filename (consistent with manageReports)
-    function getTimestampFromFilename(filename) {
-        // filename format: report-YYYY-MM-DDTHH-MM-SSZ.json
-        const timestampPart = filename.substring(7, filename.length - 5); // e.g., "YYYY-MM-DDTHH-MM-SSZ"
-        // Restore colons in the time part: HH-MM-SS -> HH:MM:SS
-        // Ensure T separator is present
-        const isoTimestamp = timestampPart.substring(0, 10) + 'T' + timestampPart.substring(11).replace(/-/g, ':');
-        // Now isoTimestamp should be "YYYY-MM-DDTHH:MM:SSZ" which is valid ISO 8601
-        const date = new Date(isoTimestamp);
-        if (isNaN(date.getTime())) { // Check if parsing failed
-            console.warn(`Failed to parse timestamp from filename: ${filename} (Constructed ISO: ${isoTimestamp})`);
-            return null; // Return null to indicate failure
-        }
-        return date.getTime(); // Return milliseconds since epoch
-    }
-
-
-    app.get('/api/reports', async (req, res) => {
-        try {
-            const reportsData = await reportManager.getReports(); // Use ReportManager method
-            res.json(reportsData);
-        } catch (err) {
-            console.error('Error serving reports:', err.message);
-            res.status(500).send('Error retrieving reports');
-        }
-    });
-
-    // --- Add config endpoint --- (Update to use config object)
-    app.get('/api/config', (req, res) => {
-        res.json({
-            snapshotInterval: config.interval // Expose the interval value from config
-        });
-    });
-
-    // --- End Web Server Setup ---
-
 
     try {
         // --- Initialize Report Directory ---
@@ -82,18 +36,10 @@ async function runWatchdog() {
         }
         // --- End Clear Reports Logic ---
 
-        // Report directory creation is handled by ReportManager.initializeDirectory()
+        // --- Start the Server (using server.js) ---
+        server = serverManager.startServer(config, reportManager, __dirname); // Start server and store instance
 
         // Start the server *before* launching Puppeteer
-        server = app.listen(config.serverPort, () => {
-             console.log(`Report viewer available at http://localhost:${config.serverPort}`);
-        });
-        server.on('error', (err) => {
-            console.error(`Server error: ${err.message}`);
-            // Decide how to handle server errors (e.g., exit or just log)
-            // For now, log and let watchdog continue if possible
-        });
-
         browser = await puppeteer.launch({ 
             headless: config.isHeadless, // Use config value
             defaultViewport: null,
@@ -120,32 +66,6 @@ async function runWatchdog() {
         console.log('Connecting to DevTools Protocol on game page...');
         // Ensure CDP session is attached to the GAME PAGE
         const cdpSession = await gamePage.target().createCDPSession();
-
-        // --- BEGIN ADDED DEBUG ---
-        // console.log('Attaching listener for ALL CDP session events...');
-        // cdpSession.on('*', (eventName, eventData) => {
-        //     // Avoid logging excessively large data chunks if they *do* eventually appear
-        //     if (eventName === 'HeapProfiler.addHeapSnapshotChunk') {
-        //         console.log(`DEBUG (Generic Listener): Received event: ${eventName} (Chunk length: ${eventData.chunk.length})`);
-        //     } else if (eventName === 'HeapProfiler.reportHeapSnapshotProgress') {
-        //          console.log(`DEBUG (Generic Listener): Received event: ${eventName} (Done: ${eventData.done}/${eventData.total})`);
-        //     } else {
-        //         // Log other events concisely
-        //         console.log(`DEBUG (Generic Listener): Received event: ${eventName}`);
-        //         // Optionally log small event data:
-        //         // try {
-        //         //     const dataStr = JSON.stringify(eventData);
-        //         //     if (dataStr.length < 200) { // Log only small data payloads
-        //         //         console.log(`  Data: ${dataStr}`);
-        //         //     } else {
-        //         //          console.log(`  Data: [Too large to log]`);
-        //         //     }
-        //         // } catch (e) {
-        //         //      console.log(`  Data: [Cannot stringify]`);
-        //         // }
-        //     }
-        // });
-        // --- END ADDED DEBUG ---
 
         await cdpSession.send('HeapProfiler.enable');
         console.log('HeapProfiler enabled.');
@@ -778,7 +698,10 @@ async function runWatchdog() {
     } catch (error) {
         console.error('Error during browser operation or server startup:', error.message);
         if (intervalId) clearInterval(intervalId); // Clear interval on error
-        if (server) server.close(); // Close server on error
+        // --- Stop server on error (using server.js) ---
+        if (server) {
+            await serverManager.stopServer(server).catch(err => console.error('Error stopping server during cleanup:', err)); // Add error handling for stop
+        }
         if (browser) {
             await browser.close();
         }
@@ -799,10 +722,15 @@ process.on('SIGINT', async () => {
     // A simple way is to declare them outside runWatchdog, but this pollutes global scope.
     // A better way involves structuring the app differently, maybe using classes or modules.
     // For now, we'll rely on the OS cleaning up, but this is not ideal.
+
+    // --- Add Server Shutdown to SIGINT --- 
+    // This part needs access to the `server` variable. We will address this properly
+    // when introducing the Watchdog class. For now, it won't automatically close on SIGINT.
+    // if (server) await serverManager.stopServer(server); 
+
     // if (intervalId) clearInterval(intervalId); // Needs intervalId
-    // if (server) server.close(() => console.log('Server closed.')); // Needs server
     // if (browser) await browser.close(); // Needs browser
-    console.warn("Cleanup on SIGINT is basic. Ensure resources are closed if errors occur before full setup.");
+    console.warn("Cleanup on SIGINT is basic. Ensure resources are closed if errors occur before full setup. Server might not close automatically on Ctrl+C yet.");
     process.exit(0);
 });
 
