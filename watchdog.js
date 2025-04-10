@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const getConfig = require('./src/config.js'); // Import the config module
+const ReportManager = require('./src/report-manager.js'); // Require ReportManager
 const fs = require('fs').promises; // Added for file system operations
 const path = require('path'); // Added for path manipulation
 const express = require('express'); // Add Express
@@ -9,6 +10,7 @@ const express = require('express'); // Add Express
 // --- Run the watchdog ---
 async function runWatchdog() {
     const config = getConfig(); // Get configuration object
+    const reportManager = new ReportManager(__dirname); // Instantiate ReportManager
 
     console.log(`Starting Watchdog for URL: ${config.targetUrl}`);
     console.log(`Headless mode: ${config.isHeadless}`);
@@ -18,7 +20,7 @@ async function runWatchdog() {
     console.log(`Report viewer server starting on port: ${config.serverPort}`); // Log server port
     console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
 
-    const reportsDir = path.join(__dirname, 'reports'); // Define reports directory
+    // Reports directory is now managed by ReportManager
     const app = express(); // Create Express app
     let server; // Declare server variable for later cleanup
     let browser;
@@ -51,32 +53,7 @@ async function runWatchdog() {
 
     app.get('/api/reports', async (req, res) => {
         try {
-            const files = await fs.readdir(reportsDir);
-            const reportFiles = files.filter(f => f.startsWith('report-') && f.endsWith('.json'));
-
-            let reportsData = [];
-            for (const file of reportFiles) {
-                const filepath = path.join(reportsDir, file);
-                try {
-                    const content = await fs.readFile(filepath, 'utf-8');
-                    const reportJson = JSON.parse(content);
-                    // Add timestamp from filename for sorting
-                    const timestampMillis = getTimestampFromFilename(file); // Get ms
-                    if (timestampMillis === null) {
-                         console.warn(`Skipping report file due to invalid timestamp in filename: ${file}`);
-                         continue; // Skip this file if timestamp is invalid
-                    }
-                    reportJson.timestamp = new Date(timestampMillis).toISOString(); // Convert ms back to ISO string
-                    reportsData.push(reportJson);
-                } catch (readErr) {
-                    console.warn(`Failed to read or parse report file ${file}:`, readErr.message);
-                    // Optionally skip this file or include an error marker
-                }
-            }
-
-            // Sort reports by timestamp, newest first
-            reportsData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
+            const reportsData = await reportManager.getReports(); // Use ReportManager method
             res.json(reportsData);
         } catch (err) {
             console.error('Error serving reports:', err.message);
@@ -95,39 +72,17 @@ async function runWatchdog() {
 
 
     try {
-        // --- Clear Reports Logic --- (Update to use config.clearReports)
-        if (config.clearReports) {
-            console.log('--clear-reports flag detected. Removing existing reports...');
-            try {
-                const files = await fs.readdir(reportsDir);
-                const reportFiles = files.filter(f => f.startsWith('report-') && f.endsWith('.json'));
-                if (reportFiles.length > 0) {
-                    let deletedCount = 0;
-                    for (const file of reportFiles) {
-                        try {
-                            await fs.unlink(path.join(reportsDir, file));
-                            deletedCount++;
-                        } catch (delErr) {
-                            console.warn(`  - Failed to delete report ${file}:`, delErr.message);
-                        }
-                    }
-                    console.log(`  Deleted ${deletedCount} report file(s).`);
-                } else {
-                    console.log('  No existing reports found to delete.');
-                }
-            } catch (err) {
-                // If directory doesn't exist, that's fine, mkdir will create it later
-                if (err.code === 'ENOENT') {
-                     console.log('  Reports directory does not exist yet, nothing to clear.');
-                } else {
-                    console.error('  Error reading reports directory for clearing:', err.message);
-                    // Optional: Decide if this is fatal. For now, continue.
-                }
-            }
-        } // --- End Clear Reports Logic ---
+        // --- Initialize Report Directory ---
+        await reportManager.initializeDirectory();
 
-        await fs.mkdir(reportsDir, { recursive: true }); // Create reports directory if it doesn't exist
-        console.log(`Reports will be saved to: ${reportsDir}`);
+        // --- Clear Reports Logic (using ReportManager) ---
+        if (config.clearReports) {
+            console.log('--clear-reports flag detected.'); // Log simplified message
+            await reportManager.clearReports();
+        }
+        // --- End Clear Reports Logic ---
+
+        // Report directory creation is handled by ReportManager.initializeDirectory()
 
         // Start the server *before* launching Puppeteer
         server = app.listen(config.serverPort, () => {
@@ -614,37 +569,8 @@ async function runWatchdog() {
             return { nodeCounts: counts, constructorCounts: { threejs: threejsConstructorCounts, game: gameConstructorCounts, misc: miscConstructorCounts } };
         }
 
-        // --- ADD manageReports function ---
-        async function manageReports(dir, maxReportsToKeep) {
-            try {
-                const files = await fs.readdir(dir);
-                const reportFiles = files
-                    .filter(f => f.startsWith('report-') && f.endsWith('.json'))
-                    .map(f => ({
-                        name: f,
-                        // Extract timestamp reliably (assuming ISO format YYYY-MM-DDTHH-MM-SS.mmmZ)
-                        time: new Date(f.substring(7, f.length - 5).replace(/-/g, ':').replace('T', ' ').replace('Z', '')).getTime() 
-                    }))
-                    .sort((a, b) => a.time - b.time); // Sort oldest first
-
-                if (reportFiles.length > maxReportsToKeep) {
-                    const filesToDelete = reportFiles.slice(0, reportFiles.length - maxReportsToKeep);
-                    console.log(`Rotating reports: Keeping ${maxReportsToKeep}, removing ${filesToDelete.length} oldest reports.`);
-                    for (const file of filesToDelete) {
-                        try {
-                            await fs.unlink(path.join(dir, file.name));
-                            // console.log(`Deleted old report: ${file.name}`);
-                        } catch (delErr) {
-                            console.warn(`Failed to delete old report ${file.name}:`, delErr.message);
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error('Error managing reports:', err.message);
-            }
-        }
-
-        // --- ADD calculateConstructorDelta function ---
+        // --- RE-ADD calculateConstructorDelta function --- 
+        // Kept here for now as it depends on the analysis structure
         function calculateConstructorDelta(current, previous) {
             const delta = { threejs: {}, game: {}, misc: {} };
             const categories = ['threejs', 'game', 'misc'];
@@ -667,21 +593,6 @@ async function runWatchdog() {
             return delta;
         }
 
-        // --- ADD saveReport function ---
-        async function saveReport(dir, reportData) {
-            const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '') + 'Z'; // Format: YYYY-MM-DDTHH-MM-SSZ
-            const filename = `report-${timestamp}.json`;
-            const filepath = path.join(dir, filename);
-
-            try {
-                await fs.writeFile(filepath, JSON.stringify(reportData, null, 2));
-                console.log(`Report saved: ${filename}`);
-                await manageReports(dir, config.maxReports); // Pass the configured maxReports value
-            } catch (err) {
-                console.error(`Error saving report ${filename}:`, err.message);
-            }
-        }
-
         // Take Initial Snapshot & Analysis
         console.log('\n--- Initial Snapshot ---');
         const initialSnapshotData = await takeSnapshot(cdpSession);
@@ -692,7 +603,7 @@ async function runWatchdog() {
             constructorCounts: initialAnalysisResult.constructorCounts,
             constructorCountsDelta: calculateConstructorDelta(initialAnalysisResult.constructorCounts, null) // Delta is initial count
         };
-        await saveReport(reportsDir, initialReportData); // Save initial report with delta
+        await reportManager.saveReport(initialReportData, config.maxReports); // Use ReportManager method
         let previousAnalysisResult = initialAnalysisResult; // Use the full result object from analyzeSnapshot
         console.log('--- Initial Snapshot End ---');
 
@@ -742,7 +653,7 @@ async function runWatchdog() {
                     constructorCountsDelta: delta
                 };
 
-                await saveReport(reportsDir, reportData); // Save interval report with delta
+                await reportManager.saveReport(reportData, config.maxReports); // Use ReportManager method
             }
 
             // Step 8 & 9: Comparison Logic & Leak Detection Heuristic
