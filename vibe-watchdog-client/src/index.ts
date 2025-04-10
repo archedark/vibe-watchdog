@@ -6,11 +6,60 @@ interface VibeWatchdogOptions {
   token: string;
   backendUrl?: string; // Optional: Defaults will be handled internally
   interval?: number; // Optional: Interval in ms for scene traversal
+  excludeTypes?: string[]; // Optional: Array of constructor names to exclude from specific counts
 }
+
+// --- Types based on analyzer-constants.js (subset relevant to scene traversal) ---
+const knownThreejsTypes = new Set([
+    'Scene', 'Object3D', 'Mesh', 'Group', 'SkinnedMesh', 'InstancedMesh', 'BatchedMesh', 'LOD',
+    'Points', 'Line', 'LineLoop', 'LineSegments', 'Sprite',
+    'BufferGeometry', 'InstancedBufferGeometry', 'BoxGeometry', 'CapsuleGeometry', 'CircleGeometry', 'ConeGeometry',
+    'CylinderGeometry', 'DodecahedronGeometry', 'EdgesGeometry', 'ExtrudeGeometry', 'IcosahedronGeometry',
+    'LatheGeometry', 'OctahedronGeometry', 'PlaneGeometry', 'PolyhedronGeometry', 'RingGeometry',
+    'ShapeGeometry', 'SphereGeometry', 'TetrahedronGeometry', 'TorusGeometry', 'TorusKnotGeometry',
+    'TubeGeometry', 'WireframeGeometry', 'Shape', 'Path',
+    'Material', 'LineBasicMaterial', 'LineDashedMaterial', 'MeshBasicMaterial', 'MeshDepthMaterial',
+    'MeshDistanceMaterial', 'MeshLambertMaterial', 'MeshMatcapMaterial', 'MeshNormalMaterial',
+    'MeshPhongMaterial', 'MeshPhysicalMaterial', 'MeshStandardMaterial', 'MeshToonMaterial',
+    'PointsMaterial', 'RawShaderMaterial', 'ShaderMaterial', 'ShadowMaterial', 'SpriteMaterial',
+    'Texture', 'CanvasTexture', 'CompressedArrayTexture', 'CompressedCubeTexture', 'CompressedTexture',
+    'CubeTexture', 'Data3DTexture', 'DataArrayTexture', 'DataTexture', 'DepthTexture', 'FramebufferTexture',
+    'VideoTexture',
+    'WebGLRenderTarget', 'WebGLCubeRenderTarget', 'WebGLArrayRenderTarget',
+    'Light', 'AmbientLight', 'DirectionalLight', 'HemisphereLight', 'LightProbe', 'PointLight',
+    'RectAreaLight', 'SpotLight', 'LightShadow', 'DirectionalLightShadow', 'PointLightShadow', 'SpotLightShadow',
+    'Camera', 'ArrayCamera', 'OrthographicCamera', 'PerspectiveCamera', 'StereoCamera', 'CubeCamera',
+    'Audio', 'AudioListener', 'PositionalAudio',
+    'AnimationClip', 'AnimationMixer', 'AnimationAction', 'AnimationObjectGroup', 'KeyframeTrack',
+    'BooleanKeyframeTrack', 'ColorKeyframeTrack', 'NumberKeyframeTrack', 'QuaternionKeyframeTrack', 'StringKeyframeTrack', 'VectorKeyframeTrack',
+    'Raycaster', 'Layers', 'Clock', 'EventDispatcher'
+    // Excluding Helpers, Loaders, Math, Curves, Attributes, WebGL internals etc. as they are less likely
+    // to be directly traversed in a typical scene graph or indicative of app-level leaks.
+]);
 
 // Define the structure for the counts payload
 interface SceneCounts {
-  [constructorName: string]: number;
+  // Broad categories using obj.is[Type] checks + unique resources
+  categories: {
+    Mesh: number;
+    Light: number;
+    Camera: number;
+    Scene: number;
+    Group: number;
+    Sprite: number;
+    Object3D: number; // Non-specific Object3D nodes
+    Geometry: number; // Unique geometries found on meshes
+    Material: number; // Unique materials found on meshes
+    Texture: number; // Unique textures found on materials
+    Other: number; // Objects not matching known categories
+  };
+  // Specific constructor names found during traversal (excluding manually excluded types)
+  threejsConstructors: {
+    [constructorName: string]: number;
+  };
+  userConstructors: {
+    [constructorName: string]: number;
+  };
 }
 
 const DEFAULT_INTERVAL = 10000; // Default traversal interval: 10 seconds
@@ -24,10 +73,7 @@ class VibeWatchdogClient {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private ws: WebSocket | null = null;
   private isConnected: boolean = false;
-  private objectTypesToTrack: Set<string> = new Set([
-    'Mesh', 'BufferGeometry', 'Material', 'Texture', 'Light' // Basic types
-    // TODO: Add more THREE types, make configurable?
-  ]);
+  private excludedTypes: Set<string> = new Set();
 
   /**
    * Initializes the Vibe Watchdog client library.
@@ -37,9 +83,8 @@ class VibeWatchdogClient {
     console.log('[VibeWatchdog] Initializing...');
 
     if (this.intervalId) {
-      console.warn('[VibeWatchdog] Already initialized. Clearing previous interval.');
-      clearInterval(this.intervalId);
-      this.disconnectWebSocket();
+      console.warn('[VibeWatchdog] Already initialized. Clearing previous state.');
+      this.dispose(); // Clear interval and disconnect WebSocket
     }
 
     // Validate using duck typing (more robust with module linking)
@@ -56,8 +101,12 @@ class VibeWatchdogClient {
     this.token = options.token; // Store the token
     this.backendUrl = options.backendUrl || DEFAULT_BACKEND_URL;
     this.interval = options.interval || DEFAULT_INTERVAL;
+    this.excludedTypes = new Set(options.excludeTypes || []);
 
     console.log(`[VibeWatchdog] Configured with Interval: ${this.interval}ms, Backend: ${this.backendUrl}`);
+    if (this.excludedTypes.size > 0) {
+       console.log(`[VibeWatchdog] Excluding types: ${[...this.excludedTypes].join(', ')}`);
+    }
 
     // Start the monitoring loop
     this.startMonitoringLoop();
@@ -92,25 +141,123 @@ class VibeWatchdogClient {
       return;
     }
 
-    console.log('[VibeWatchdog] Performing scene traversal...');
-    const counts: SceneCounts = {};
-    this.objectTypesToTrack.forEach(type => counts[type] = 0); // Initialize tracked types to 0
+    // console.log('[VibeWatchdog] Performing scene traversal...'); // Make less noisy
+    const uniqueGeometries = new Set<THREE.BufferGeometry>();
+    const uniqueMaterials = new Set<THREE.Material>();
+    const uniqueTextures = new Set<THREE.Texture>();
+
+    const counts: SceneCounts = {
+      categories: {
+        Mesh: 0, Light: 0, Camera: 0, Scene: 0, Group: 0,
+        Sprite: 0, Object3D: 0, Geometry: 0, Material: 0,
+        Texture: 0, Other: 0,
+      },
+      threejsConstructors: {},
+      userConstructors: {},
+    };
 
     try {
-      // Explicitly type 'obj' as THREE.Object3D
       this.scene.traverse((obj: THREE.Object3D) => {
+        // --- TEMPORARY DEBUG --- Keep this for now if needed
+        console.log(`[VibeWatchdog DEBUG] Traversing: ${obj.constructor.name}`, obj);
+        // --- END DEBUG --- 
+
         const constructorName = obj.constructor.name;
-        // Basic type checking using constructor name (simple approach)
-        // Could also use obj.isMesh, obj.isBufferGeometry etc. for robustness
-        if(this.objectTypesToTrack.has(constructorName)) {
-             counts[constructorName] = (counts[constructorName] || 0) + 1;
+        let effectiveType = constructorName; // Start with the constructor name
+
+        // Fallback for generic containers: Use object.name if it's meaningful
+        if ((constructorName === 'Group' || constructorName === 'Object3D') && obj.name && obj.name !== '') {
+            // Basic check: Is the name different from the generic constructor name?
+            // You could add more heuristics here if needed (e.g., check against known THREE types)
+            if (obj.name !== constructorName) { 
+                effectiveType = obj.name; 
+                // console.log(`[VibeWatchdog DEBUG] Using object.name '${obj.name}' as effectiveType for generic ${constructorName}`);
+            }
         }
-        // TODO: Add logic for specific geometry/material/texture types if needed
-        // TODO: Add logic for user-defined classes
+
+        let isCategorized = false;
+
+        // Skip manually excluded types entirely (using effectiveType)
+        if (this.excludedTypes.has(effectiveType)) {
+          return;
+        }
+
+        // Categorize constructor based on effectiveType
+        if (knownThreejsTypes.has(effectiveType)) {
+          counts.threejsConstructors[effectiveType] = (counts.threejsConstructors[effectiveType] || 0) + 1;
+        } else {
+          // Assume it's a user constructor if not known and not excluded
+          counts.userConstructors[effectiveType] = (counts.userConstructors[effectiveType] || 0) + 1;
+        }
+
+        // Increment broad categories based on object type using type guards (original constructor matters here)
+        if ('isMesh' in obj && obj.isMesh) {
+          counts.categories.Mesh++;
+          isCategorized = true;
+          const mesh = obj as THREE.Mesh;
+          if (mesh.geometry) uniqueGeometries.add(mesh.geometry);
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(mat => { if (mat) uniqueMaterials.add(mat); });
+          } else if (mesh.material) {
+            uniqueMaterials.add(mesh.material);
+          }
+        } else if ('isLight' in obj && obj.isLight) {
+          counts.categories.Light++;
+          isCategorized = true;
+        } else if ('isCamera' in obj && obj.isCamera) {
+          counts.categories.Camera++;
+          isCategorized = true;
+        } else if ('isScene' in obj && obj.isScene) {
+          counts.categories.Scene++;
+          isCategorized = true;
+        } else if ('isGroup' in obj && obj.isGroup) {
+          counts.categories.Group++;
+          isCategorized = true;
+        } else if ('isSprite' in obj && obj.isSprite) {
+          counts.categories.Sprite++;
+          isCategorized = true;
+        }
+
+        // If it's an Object3D but not one of the more specific types above
+        if (!isCategorized && ('isObject3D' in obj && obj.isObject3D)) {
+           counts.categories.Object3D++;
+           isCategorized = true;
+        }
+
+        // If it wasn't categorized by any known THREE type check
+        if (!isCategorized) {
+          counts.categories.Other++;
+        }
       });
 
-      console.log('[VibeWatchdog] Scene Counts:', counts);
+      // Count unique geometries, materials, and their textures
+      counts.categories.Geometry = uniqueGeometries.size;
+      counts.categories.Material = uniqueMaterials.size;
 
+      uniqueMaterials.forEach(material => {
+        const matAny = material as any;
+        for (const prop of ['map', 'envMap', 'aoMap', 'alphaMap', 'bumpMap', 'displacementMap', 'emissiveMap', 'lightMap', 'metalnessMap', 'normalMap', 'roughnessMap', 'specularMap', 'gradientMap']) {
+            const tex = matAny[prop] as THREE.Texture | null;
+            if (tex && tex.isTexture) {
+                uniqueTextures.add(tex);
+            }
+        }
+      });
+      counts.categories.Texture = uniqueTextures.size;
+
+      // --- Logging Output --- 
+      const logCounts = (label: string, countObj: { [key: string]: number }) => {
+          const sortedEntries = Object.entries(countObj).sort(([a], [b]) => a.localeCompare(b));
+          if (sortedEntries.length > 0) {
+              console.log(`[VibeWatchdog] ${label}:`, Object.fromEntries(sortedEntries));
+          }
+      }
+      console.log('[VibeWatchdog] --- Traversal Complete ---');
+      logCounts('Scene Categories', counts.categories);
+      logCounts('THREE.js Constructors', counts.threejsConstructors);
+      logCounts('User Constructors', counts.userConstructors);
+      console.log('[VibeWatchdog] --------------------------');
+      
       // Send data if connected
       this.sendData({ type: 'sceneCounts', payload: counts });
 
@@ -130,36 +277,28 @@ class VibeWatchdogClient {
 
     console.log(`[VibeWatchdog] Attempting to connect WebSocket to ${this.backendUrl}...`);
     try {
-      // Include token in connection - Query parameter is one way, headers are better but not standard in browser WebSocket API
-      // Using a query parameter for simplicity here, backend needs to support this.
-      // Consider sending token in first message after connection for better security.
       const urlWithToken = `${this.backendUrl}?token=${encodeURIComponent(this.token || '')}`;
       this.ws = new WebSocket(urlWithToken);
 
       this.ws.onopen = () => {
         console.log('[VibeWatchdog] WebSocket connection established.');
         this.isConnected = true;
-        // Optional: Send a confirmation message or initial data
-        // this.sendData({ type: 'hello', agent: '@vibewatchdog/client' });
       };
 
       this.ws.onmessage = (event) => {
         console.log('[VibeWatchdog] Received message from backend:', event.data);
-        // TODO: Handle commands from backend (e.g., force snapshot)
         this.handleBackendCommand(event.data);
       };
 
       this.ws.onerror = (event) => {
         console.error('[VibeWatchdog] WebSocket error:', event);
         this.isConnected = false;
-        // TODO: Implement reconnection logic?
       };
 
       this.ws.onclose = (event) => {
         console.log(`[VibeWatchdog] WebSocket closed. Code: ${event.code}, Reason: ${event.reason}`);
         this.isConnected = false;
         this.ws = null;
-        // TODO: Implement reconnection logic?
       };
 
     } catch (error) {
@@ -174,7 +313,7 @@ class VibeWatchdogClient {
    */
   private sendData(data: object): void {
     if (!this.isConnected || !this.ws) {
-      console.log('[VibeWatchdog] Cannot send data: WebSocket not connected. Data:', data);
+      console.log('[VibeWatchdog] Would send data (WebSocket not connected): ', data);
       return;
     }
     try {
@@ -194,14 +333,7 @@ class VibeWatchdogClient {
      try {
         const command = JSON.parse(messageData);
         console.log('[VibeWatchdog] Parsed command:', command);
-        // switch (command.type) {
-        //    case 'force_snapshot':
-        //       console.log('[VibeWatchdog] Received force_snapshot command (TODO: implement)');
-        //       // this.performHeapSnapshot();
-        //       break;
-        //    default:
-        //       console.warn(`[VibeWatchdog] Unknown command type: ${command.type}`);
-        // }
+        // TODO: Implement command handling
      } catch (error) {
         console.warn('[VibeWatchdog] Failed to parse backend message:', messageData, error);
      }
@@ -233,7 +365,8 @@ class VibeWatchdogClient {
     this.disconnectWebSocket();
     this.scene = null;
     this.token = null;
-     console.log('[VibeWatchdog] Client disposed.');
+    this.excludedTypes.clear(); // Clear excluded types
+    console.log('[VibeWatchdog] Client disposed.');
   }
 }
 

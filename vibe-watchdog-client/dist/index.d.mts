@@ -5,6 +5,7 @@ interface VibeWatchdogOptions {
     token: string;
     backendUrl?: string;
     interval?: number;
+    excludeTypes?: string[];
 }
 declare class VibeWatchdogClient {
     private scene;
@@ -14,7 +15,7 @@ declare class VibeWatchdogClient {
     private intervalId;
     private ws;
     private isConnected;
-    private objectTypesToTrack;
+    private excludedTypes;
     /**
      * Initializes the Vibe Watchdog client library.
      * @param options Configuration options including the THREE.Scene and API token.

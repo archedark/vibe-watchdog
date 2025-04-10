@@ -1,4 +1,115 @@
 // src/index.ts
+var knownThreejsTypes = /* @__PURE__ */ new Set([
+  "Scene",
+  "Object3D",
+  "Mesh",
+  "Group",
+  "SkinnedMesh",
+  "InstancedMesh",
+  "BatchedMesh",
+  "LOD",
+  "Points",
+  "Line",
+  "LineLoop",
+  "LineSegments",
+  "Sprite",
+  "BufferGeometry",
+  "InstancedBufferGeometry",
+  "BoxGeometry",
+  "CapsuleGeometry",
+  "CircleGeometry",
+  "ConeGeometry",
+  "CylinderGeometry",
+  "DodecahedronGeometry",
+  "EdgesGeometry",
+  "ExtrudeGeometry",
+  "IcosahedronGeometry",
+  "LatheGeometry",
+  "OctahedronGeometry",
+  "PlaneGeometry",
+  "PolyhedronGeometry",
+  "RingGeometry",
+  "ShapeGeometry",
+  "SphereGeometry",
+  "TetrahedronGeometry",
+  "TorusGeometry",
+  "TorusKnotGeometry",
+  "TubeGeometry",
+  "WireframeGeometry",
+  "Shape",
+  "Path",
+  "Material",
+  "LineBasicMaterial",
+  "LineDashedMaterial",
+  "MeshBasicMaterial",
+  "MeshDepthMaterial",
+  "MeshDistanceMaterial",
+  "MeshLambertMaterial",
+  "MeshMatcapMaterial",
+  "MeshNormalMaterial",
+  "MeshPhongMaterial",
+  "MeshPhysicalMaterial",
+  "MeshStandardMaterial",
+  "MeshToonMaterial",
+  "PointsMaterial",
+  "RawShaderMaterial",
+  "ShaderMaterial",
+  "ShadowMaterial",
+  "SpriteMaterial",
+  "Texture",
+  "CanvasTexture",
+  "CompressedArrayTexture",
+  "CompressedCubeTexture",
+  "CompressedTexture",
+  "CubeTexture",
+  "Data3DTexture",
+  "DataArrayTexture",
+  "DataTexture",
+  "DepthTexture",
+  "FramebufferTexture",
+  "VideoTexture",
+  "WebGLRenderTarget",
+  "WebGLCubeRenderTarget",
+  "WebGLArrayRenderTarget",
+  "Light",
+  "AmbientLight",
+  "DirectionalLight",
+  "HemisphereLight",
+  "LightProbe",
+  "PointLight",
+  "RectAreaLight",
+  "SpotLight",
+  "LightShadow",
+  "DirectionalLightShadow",
+  "PointLightShadow",
+  "SpotLightShadow",
+  "Camera",
+  "ArrayCamera",
+  "OrthographicCamera",
+  "PerspectiveCamera",
+  "StereoCamera",
+  "CubeCamera",
+  "Audio",
+  "AudioListener",
+  "PositionalAudio",
+  "AnimationClip",
+  "AnimationMixer",
+  "AnimationAction",
+  "AnimationObjectGroup",
+  "KeyframeTrack",
+  "BooleanKeyframeTrack",
+  "ColorKeyframeTrack",
+  "NumberKeyframeTrack",
+  "QuaternionKeyframeTrack",
+  "StringKeyframeTrack",
+  "VectorKeyframeTrack",
+  "Raycaster",
+  "Layers",
+  "Clock",
+  "EventDispatcher"
+  // Excluding Helpers, Loaders, Math, Curves, Attributes, WebGL internals etc. as they are less likely
+  // to be directly traversed in a typical scene graph or indicative of app-level leaks.
+]);
 var DEFAULT_INTERVAL = 1e4;
 var DEFAULT_BACKEND_URL = "wss://your-vibe-watchdog-backend.com/ws/agent";
 var VibeWatchdogClient = class {
@@ -10,15 +121,7 @@ var VibeWatchdogClient = class {
     this.intervalId = null;
     this.ws = null;
     this.isConnected = false;
-    this.objectTypesToTrack = /* @__PURE__ */ new Set([
-      "Mesh",
-      "BufferGeometry",
-      "Material",
-      "Texture",
-      "Light"
-      // Basic types
-      // TODO: Add more THREE types, make configurable?
-    ]);
+    this.excludedTypes = /* @__PURE__ */ new Set();
   }
   /**
    * Initializes the Vibe Watchdog client library.
@@ -27,9 +130,8 @@ var VibeWatchdogClient = class {
   init(options) {
     console.log("[VibeWatchdog] Initializing...");
     if (this.intervalId) {
-      console.warn("[VibeWatchdog] Already initialized. Clearing previous interval.");
-      clearInterval(this.intervalId);
-      this.disconnectWebSocket();
+      console.warn("[VibeWatchdog] Already initialized. Clearing previous state.");
+      this.dispose();
     }
     if (!(options == null ? void 0 : options.scene) || typeof options.scene !== "object" || options.scene.isScene !== true) {
       console.error("[VibeWatchdog] Initialization failed: A valid THREE.Scene object (with .isScene === true) must be provided in options.scene.");
@@ -43,7 +145,11 @@ var VibeWatchdogClient = class {
     this.token = options.token;
     this.backendUrl = options.backendUrl || DEFAULT_BACKEND_URL;
     this.interval = options.interval || DEFAULT_INTERVAL;
+    this.excludedTypes = new Set(options.excludeTypes || []);
     console.log(`[VibeWatchdog] Configured with Interval: ${this.interval}ms, Backend: ${this.backendUrl}`);
+    if (this.excludedTypes.size > 0) {
+      console.log(`[VibeWatchdog] Excluding types: ${[...this.excludedTypes].join(", ")}`);
+    }
     this.startMonitoringLoop();
     this.connectWebSocket();
     console.log("[VibeWatchdog] Initialization complete.");
@@ -69,17 +175,104 @@ var VibeWatchdogClient = class {
       console.warn("[VibeWatchdog] Cannot traverse scene: Not initialized correctly.");
       return;
     }
-    console.log("[VibeWatchdog] Performing scene traversal...");
-    const counts = {};
-    this.objectTypesToTrack.forEach((type) => counts[type] = 0);
+    const uniqueGeometries = /* @__PURE__ */ new Set();
+    const uniqueMaterials = /* @__PURE__ */ new Set();
+    const uniqueTextures = /* @__PURE__ */ new Set();
+    const counts = {
+      categories: {
+        Mesh: 0,
+        Light: 0,
+        Camera: 0,
+        Scene: 0,
+        Group: 0,
+        Sprite: 0,
+        Object3D: 0,
+        Geometry: 0,
+        Material: 0,
+        Texture: 0,
+        Other: 0
+      },
+      threejsConstructors: {},
+      userConstructors: {}
+    };
     try {
       this.scene.traverse((obj) => {
+        console.log(`[VibeWatchdog DEBUG] Traversing: ${obj.constructor.name}`, obj);
         const constructorName = obj.constructor.name;
-        if (this.objectTypesToTrack.has(constructorName)) {
-          counts[constructorName] = (counts[constructorName] || 0) + 1;
+        let effectiveType = constructorName;
+        if ((constructorName === "Group" || constructorName === "Object3D") && obj.name && obj.name !== "") {
+          if (obj.name !== constructorName) {
+            effectiveType = obj.name;
+          }
+        }
+        let isCategorized = false;
+        if (this.excludedTypes.has(effectiveType)) {
+          return;
+        }
+        if (knownThreejsTypes.has(effectiveType)) {
+          counts.threejsConstructors[effectiveType] = (counts.threejsConstructors[effectiveType] || 0) + 1;
+        } else {
+          counts.userConstructors[effectiveType] = (counts.userConstructors[effectiveType] || 0) + 1;
+        }
+        if ("isMesh" in obj && obj.isMesh) {
+          counts.categories.Mesh++;
+          isCategorized = true;
+          const mesh = obj;
+          if (mesh.geometry) uniqueGeometries.add(mesh.geometry);
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((mat) => {
+              if (mat) uniqueMaterials.add(mat);
+            });
+          } else if (mesh.material) {
+            uniqueMaterials.add(mesh.material);
+          }
+        } else if ("isLight" in obj && obj.isLight) {
+          counts.categories.Light++;
+          isCategorized = true;
+        } else if ("isCamera" in obj && obj.isCamera) {
+          counts.categories.Camera++;
+          isCategorized = true;
+        } else if ("isScene" in obj && obj.isScene) {
+          counts.categories.Scene++;
+          isCategorized = true;
+        } else if ("isGroup" in obj && obj.isGroup) {
+          counts.categories.Group++;
+          isCategorized = true;
+        } else if ("isSprite" in obj && obj.isSprite) {
+          counts.categories.Sprite++;
+          isCategorized = true;
+        }
+        if (!isCategorized && ("isObject3D" in obj && obj.isObject3D)) {
+          counts.categories.Object3D++;
+          isCategorized = true;
+        }
+        if (!isCategorized) {
+          counts.categories.Other++;
         }
       });
-      console.log("[VibeWatchdog] Scene Counts:", counts);
+      counts.categories.Geometry = uniqueGeometries.size;
+      counts.categories.Material = uniqueMaterials.size;
+      uniqueMaterials.forEach((material) => {
+        const matAny = material;
+        for (const prop of ["map", "envMap", "aoMap", "alphaMap", "bumpMap", "displacementMap", "emissiveMap", "lightMap", "metalnessMap", "normalMap", "roughnessMap", "specularMap", "gradientMap"]) {
+          const tex = matAny[prop];
+          if (tex && tex.isTexture) {
+            uniqueTextures.add(tex);
+          }
+        }
+      });
+      counts.categories.Texture = uniqueTextures.size;
+      const logCounts = (label, countObj) => {
+        const sortedEntries = Object.entries(countObj).sort(([a], [b]) => a.localeCompare(b));
+        if (sortedEntries.length > 0) {
+          console.log(`[VibeWatchdog] ${label}:`, Object.fromEntries(sortedEntries));
+        }
+      };
+      console.log("[VibeWatchdog] --- Traversal Complete ---");
+      logCounts("Scene Categories", counts.categories);
+      logCounts("THREE.js Constructors", counts.threejsConstructors);
+      logCounts("User Constructors", counts.userConstructors);
+      console.log("[VibeWatchdog] --------------------------");
       this.sendData({ type: "sceneCounts", payload: counts });
     } catch (error) {
       console.error("[VibeWatchdog] Error during scene traversal:", error);
@@ -125,7 +318,7 @@ var VibeWatchdogClient = class {
    */
   sendData(data) {
     if (!this.isConnected || !this.ws) {
-      console.log("[VibeWatchdog] Cannot send data: WebSocket not connected. Data:", data);
+      console.log("[VibeWatchdog] Would send data (WebSocket not connected): ", data);
       return;
     }
     try {
@@ -173,6 +366,7 @@ var VibeWatchdogClient = class {
     this.disconnectWebSocket();
     this.scene = null;
     this.token = null;
+    this.excludedTypes.clear();
     console.log("[VibeWatchdog] Client disposed.");
   }
 };
