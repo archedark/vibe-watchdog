@@ -206,4 +206,34 @@ function analyzeSnapshot(snapshotJsonString) {
     return { nodeCounts: counts, constructorCounts: { threejs: threejsConstructorCounts, game: gameConstructorCounts, misc: miscConstructorCounts } };
 }
 
-module.exports = { analyzeSnapshot }; // Export the function
+/**
+ * Calculates the difference in constructor counts between two analysis results.
+ * @param {object | null} current - The current constructor counts ({ threejs: {...}, game: {...}, misc: {...} }).
+ * @param {object | null} previous - The previous constructor counts ({ threejs: {...}, game: {...}, misc: {...} }).
+ * @returns {object} - An object with the delta for each category ({ threejs: {...}, game: {...}, misc: {...} }).
+ */
+function calculateConstructorDelta(current, previous) {
+    const delta = { threejs: {}, game: {}, misc: {} };
+    const categories = ['threejs', 'game', 'misc'];
+
+    for (const category of categories) {
+        const currentCounts = current?.[category] || {};
+        const previousCounts = previous?.[category] || {};
+        const allKeys = new Set([...Object.keys(currentCounts), ...Object.keys(previousCounts)]);
+
+        for (const key of allKeys) {
+            const currentVal = currentCounts[key] || 0;
+            const previousVal = previousCounts[key] || 0;
+            const diff = currentVal - previousVal;
+            // Only include constructors present in current or previous, and where delta is non-zero
+            // Or if it exists in current (even if delta is 0, maybe useful for tracking appearance)
+            // Let's stick to non-zero delta for now to keep reports cleaner.
+            if (diff !== 0) { 
+                delta[category][key] = diff;
+            }
+        }
+    }
+    return delta;
+}
+
+module.exports = { analyzeSnapshot, calculateConstructorDelta }; // Export both functions
