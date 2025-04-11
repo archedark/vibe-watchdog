@@ -63,7 +63,7 @@ Agent Mode adds a tiny library to your game code to continuously track active ob
 
 **Keep in Mind:**
 *   **Requires Simple Code Change:** You need to install a library and add ~5 lines of code to your project.
-*   **Scene-Only Scope:** It *only* sees objects added to the specific THREE.js scene you tell it about. It cannot see objects managed elsewhere in your code (like UI elements in HTML, data in separate arrays, or detached objects) unless you manually register them (an advanced option).
+*   **Scene-Only Scope:** It *only* sees objects added to the specific THREE.js scene you tell it about. It cannot see objects managed elsewhere in your code (like UI elements in HTML, data in separate arrays, or detached objects).
 
 ### 🛠 Setup (Local Development / Testing)
 
