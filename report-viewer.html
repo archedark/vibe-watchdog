@@ -501,7 +501,6 @@
 
         // --- Polling Function ---
         async function pollForUpdates() {
-            // console.log("Polling for updates..."); // Optional debug log
             try {
                 const response = await fetch('/api/reports');
                 if (!response.ok) {
@@ -520,11 +519,8 @@
 
                 // If it's the first load or the newest report is newer than the last one shown
                 if (lastReportTimestamp === null || newestTimestamp > lastReportTimestamp) {
-                    console.log('New report data detected, reloading...');
                     statusDiv.textContent = 'New data detected, updating...'; // Indicate update
                     await loadReportData(true); // Reload data, indicate it's from polling
-                } else {
-                    // console.log("No new data detected."); // Optional debug log
                 }
 
                 updateSelectedRowHighlight();
@@ -822,7 +818,6 @@
 
         function updateChart(type = null, key = null) {
             if (!reportChart || !processedData.timestamps.length) {
-                 console.log("Chart or data not ready for update.");
                  return; // Don't update if chart isn't initialized or no data
             }
 
@@ -1178,7 +1173,6 @@
         }
 
         function startPolling(intervalMs) {
-            console.log(`Starting polling every ${intervalMs}ms`);
              if (pollIntervalId) clearInterval(pollIntervalId); // Clear previous just in case
              pollIntervalId = setInterval(pollForUpdates, intervalMs);
         }

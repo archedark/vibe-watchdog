@@ -26,7 +26,6 @@ async function initializeBrowser(config) {
         const initialPages = await browser.pages();
         reportViewerPage = initialPages.length > 0 ? initialPages[0] : await browser.newPage(); // Reuse or create
         try {
-            console.log(`Navigating initial tab to report viewer: http://localhost:${config.serverPort}`);
             await reportViewerPage.goto(`http://localhost:${config.serverPort}`, { waitUntil: 'networkidle0' });
         } catch (viewerNavError) {
              console.warn(`Warning: Failed to navigate initial tab to report viewer: ${viewerNavError.message}. Continuing...`);
@@ -34,17 +33,13 @@ async function initializeBrowser(config) {
         }
 
         // Create and navigate a new page for the target game/app
-        console.log('Opening new tab for target URL...');
         gamePage = await browser.newPage();
-        console.log(`Navigating new tab to ${config.targetUrl}...`);
         await gamePage.goto(config.targetUrl, { waitUntil: 'networkidle0' }); 
         console.log('Game page loaded successfully.');
 
         // Connect to DevTools on the game page
-        console.log('Connecting to DevTools Protocol on game page...');
         cdpSession = await gamePage.target().createCDPSession();
         await cdpSession.send('HeapProfiler.enable');
-        console.log('HeapProfiler enabled.');
 
         return { browser, reportViewerPage, gamePage, cdpSession };
 

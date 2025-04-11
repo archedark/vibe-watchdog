@@ -161,7 +161,7 @@ try {
     const excludesContent = fs.readFileSync(excludesPath, 'utf8');
     const excludesArray = excludesContent.split(',').map(item => item.trim()).filter(item => item.length > 0);
     manualMiscExcludes = new Set(excludesArray);
-    console.log(`Loaded ${manualMiscExcludes.size} manual exclusions from ${excludesPath}`);
+    // console.log(`Loaded ${manualMiscExcludes.size} manual exclusions from ${excludesPath}`);
 } catch (err) {
     console.warn(`Warning: Could not read manual exclusions file (${err.message}). Proceeding without manual exclusions.`);
     // Proceed with an empty set if file reading fails

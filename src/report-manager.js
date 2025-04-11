@@ -38,11 +38,9 @@ async function manageReportsInternal(dir, maxReportsToKeep) {
 
         if (reportFiles.length > maxReportsToKeep) {
             const filesToDelete = reportFiles.slice(0, reportFiles.length - maxReportsToKeep);
-            console.log(`Rotating reports: Keeping ${maxReportsToKeep}, removing ${filesToDelete.length} oldest reports in ${path.basename(dir)}.`);
             for (const file of filesToDelete) {
                 try {
                     await fs.unlink(path.join(dir, file.name));
-                    // console.log(`Deleted old report: ${file.name}`);
                 } catch (delErr) {
                     console.warn(`Failed to delete old report ${file.name}:`, delErr.message);
                 }
@@ -56,7 +54,6 @@ async function manageReportsInternal(dir, maxReportsToKeep) {
 class ReportManager {
     constructor(reportsDirRoot, reportsDirSubName = 'reports') {
         this.reportsDir = path.join(reportsDirRoot, reportsDirSubName);
-        console.log(`ReportManager initialized. Reports directory: ${this.reportsDir}`);
     }
 
     async initializeDirectory() {
@@ -69,7 +66,6 @@ class ReportManager {
     }
 
     async clearReports() {
-        console.log(`Removing existing reports from ${this.reportsDir}...`);
         try {
             const files = await fs.readdir(this.reportsDir);
             const reportFiles = files.filter(f => f.startsWith('report-') && f.endsWith('.json'));
@@ -83,9 +79,6 @@ class ReportManager {
                         console.warn(`  - Failed to delete report ${file}:`, delErr.message);
                     }
                 }
-                console.log(`  Deleted ${deletedCount} report file(s).`);
-            } else {
-                console.log('  No existing reports found to delete.');
             }
         } catch (err) {
             // If directory doesn't exist, that's fine, initialization should handle it
@@ -105,7 +98,6 @@ class ReportManager {
 
         try {
             await fs.writeFile(filepath, JSON.stringify(reportData, null, 2));
-            console.log(`Report saved: ${path.join(path.basename(this.reportsDir), filename)}`);
             // Call internal manage function after successful save
             await manageReportsInternal(this.reportsDir, maxReports);
         } catch (err) {
@@ -145,7 +137,6 @@ class ReportManager {
         } catch (err) {
             // If dir doesn't exist, return empty array
             if (err.code === 'ENOENT') {
-                console.log(`Reports directory ${this.reportsDir} not found, returning empty array.`);
                 return [];
             }
             console.error(`Error retrieving reports from ${this.reportsDir}:`, err.message);

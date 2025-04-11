@@ -13,7 +13,7 @@ Think of it like keeping a tidy room: some mess is okay, but if clutter keeps bu
 
 ---
 
-## Option 1: Snapshot Mode
+## Option 1: Snapshot Mode (Heavier Tracking)
 
 This mode automatically opens your project's URL and takes periodic snapshots of *all objects* in memory. It's simple to use and gives you a broad overview without needing to touch your code.
 
@@ -171,7 +171,7 @@ Snapshot Mode specifics:
 ```
 --url <url>            REQUIRED: URL of your game.
 --headless             Run without visible browser window (Default: no).
---interval <ms>        Snapshot interval (Default: 10000ms = 10s).
+--interval <ms>        Snapshot interval (Default: Snapshot=20000, Agent=5000).
 --threshold <count>    Warning threshold for consecutive increases (Default: 3).
 ```
 

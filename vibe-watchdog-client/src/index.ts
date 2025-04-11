@@ -103,7 +103,6 @@ class VibeWatchdogClient {
     this.interval = options.interval || DEFAULT_INTERVAL;
     this.excludedTypes = new Set(options.excludeTypes || []);
 
-    console.log(`[VibeWatchdog] Configured with Interval: ${this.interval}ms, Backend: ${this.backendUrl}`);
     if (this.excludedTypes.size > 0) {
        console.log(`[VibeWatchdog] Excluding types: ${[...this.excludedTypes].join(', ')}`);
     }
@@ -124,7 +123,6 @@ class VibeWatchdogClient {
     if (this.intervalId) {
         clearInterval(this.intervalId);
     }
-    console.log(`[VibeWatchdog] Starting monitoring loop (Interval: ${this.interval}ms)`);
     // Run immediately first, then set interval
     this.performSceneTraversal();
     this.intervalId = setInterval(() => {
@@ -141,7 +139,6 @@ class VibeWatchdogClient {
       return;
     }
 
-    // console.log('[VibeWatchdog] Performing scene traversal...'); // Make less noisy
     const uniqueGeometries = new Set<THREE.BufferGeometry>();
     const uniqueMaterials = new Set<THREE.Material>();
     const uniqueTextures = new Set<THREE.Texture>();
@@ -158,9 +155,6 @@ class VibeWatchdogClient {
 
     try {
       this.scene.traverse((obj: THREE.Object3D) => {
-        // --- TEMPORARY DEBUG --- Keep this for now if needed
-        console.log(`[VibeWatchdog DEBUG] Traversing: ${obj.constructor.name}`, obj);
-        // --- END DEBUG --- 
 
         const constructorName = obj.constructor.name;
         let effectiveType = constructorName; // Start with the constructor name
@@ -171,7 +165,6 @@ class VibeWatchdogClient {
             // You could add more heuristics here if needed (e.g., check against known THREE types)
             if (obj.name !== constructorName) { 
                 effectiveType = obj.name; 
-                // console.log(`[VibeWatchdog DEBUG] Using object.name '${obj.name}' as effectiveType for generic ${constructorName}`);
             }
         }
 
@@ -248,15 +241,12 @@ class VibeWatchdogClient {
       // --- Logging Output --- 
       const logCounts = (label: string, countObj: { [key: string]: number }) => {
           const sortedEntries = Object.entries(countObj).sort(([a], [b]) => a.localeCompare(b));
-          if (sortedEntries.length > 0) {
-              console.log(`[VibeWatchdog] ${label}:`, Object.fromEntries(sortedEntries));
-          }
       }
-      console.log('[VibeWatchdog] --- Traversal Complete ---');
-      logCounts('Scene Categories', counts.categories);
-      logCounts('THREE.js Constructors', counts.threejsConstructors);
-      logCounts('User Constructors', counts.userConstructors);
-      console.log('[VibeWatchdog] --------------------------');
+      // console.log('[VibeWatchdog] --- Traversal Complete ---');
+      // logCounts('Scene Categories', counts.categories);
+      // logCounts('THREE.js Constructors', counts.threejsConstructors);
+      // logCounts('User Constructors', counts.userConstructors);
+      // console.log('[VibeWatchdog] --------------------------');
       
       // Send data if connected
       this.sendData({ type: 'sceneCounts', payload: counts });
@@ -313,12 +303,10 @@ class VibeWatchdogClient {
    */
   private sendData(data: object): void {
     if (!this.isConnected || !this.ws) {
-      console.log('[VibeWatchdog] Would send data (WebSocket not connected): ', data);
       return;
     }
     try {
         const message = JSON.stringify(data);
-        console.log(`[VibeWatchdog] Sending data: ${message.substring(0, 150)}${message.length > 150 ? '...' : ''}`);
         this.ws.send(message);
     } catch (error) {
         console.error('[VibeWatchdog] Error sending data via WebSocket:', error);
@@ -332,7 +320,6 @@ class VibeWatchdogClient {
    private handleBackendCommand(messageData: any): void {
      try {
         const command = JSON.parse(messageData);
-        console.log('[VibeWatchdog] Parsed command:', command);
         // TODO: Implement command handling
      } catch (error) {
         console.warn('[VibeWatchdog] Failed to parse backend message:', messageData, error);

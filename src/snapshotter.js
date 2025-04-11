@@ -8,8 +8,7 @@
  * @throws {Error} - Throws an error if the snapshot times out or fails.
  */
 async function takeSnapshot(session) {
-    console.log('Taking heap snapshot...');
-    const SNAPSHOT_TIMEOUT_MS = 60000; // 60 seconds overall timeout
+    const SNAPSHOT_TIMEOUT_MS = 20000; // 20 seconds overall timeout
     const CHUNK_QUIET_PERIOD_MS = 500; // Wait 500ms after last chunk/finished signal
 
     return new Promise(async (resolve, reject) => {
@@ -28,7 +27,6 @@ async function takeSnapshot(session) {
         };
 
         const finalizeSnapshot = () => {
-            console.log(`Snapshot finalize triggered. Joining ${chunks.length} chunks.`);
             cleanup();
             resolve(chunks.join(''));
         };
@@ -44,8 +42,6 @@ async function takeSnapshot(session) {
             clearTimeout(quietPeriodTimeoutId);
 
             chunks.push(event.chunk);
-            // console.log(`DEBUG: Received chunk, length: ${event.chunk.length}, total chunks: ${chunks.length}`);
-
             // If finished has been reported, set a new timeout to finalize
             // If more chunks arrive, this timeout will be cleared and reset
             if (finishedReported) {
@@ -54,9 +50,7 @@ async function takeSnapshot(session) {
         };
 
         progressListener = (event) => {
-            // console.log(`Snapshot progress: ${event.done}/${event.total}`);
             if (event.finished) {
-                console.log(`Snapshot finished reporting (Size ${event.total} reported, may be inaccurate).`);
                 finishedReported = true;
                 // Stop listening to progress once finished is reported
                 if (progressListener) {
@@ -75,9 +69,7 @@ async function takeSnapshot(session) {
         session.on('HeapProfiler.reportHeapSnapshotProgress', progressListener);
 
         try {
-            console.log('Sending HeapProfiler.takeHeapSnapshot command...');
             await session.send('HeapProfiler.takeHeapSnapshot', { reportProgress: true, treatGlobalObjectsAsRoots: true }); // Added treatGlobalObjectsAsRoots
-            // console.log('Snapshot command sent, waiting for progress and chunks...');
         } catch (err) {
             console.error('Error sending takeHeapSnapshot command:', err.message);
             cleanup();

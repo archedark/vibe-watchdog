@@ -32,7 +32,6 @@ const {
  * @returns {{nodeCounts: object, constructorCounts: object}|null} - An object containing node counts and categorized constructor counts, or null if analysis fails.
  */
 function analyzeSnapshot(snapshotJsonString) {
-    console.log('Analyzing snapshot using graph traversal + constructor analysis...');
     // Initialize counts based on node names
     let counts = {
         geometryCount: 0, materialCount: 0, textureCount: 0,
@@ -87,8 +86,6 @@ function analyzeSnapshot(snapshotJsonString) {
              // Return consistent zero-count structure
              return { nodeCounts: counts, constructorCounts: { threejs: {}, game: {}, misc: {} } };
         }
-
-        console.log(`Iterating through ${nodes.length / nodeFieldCount} nodes...`); // Removed edge count log as edges aren't iterated explicitly
 
         // --- Node & Edge Iteration (Simplified) --- 
         // We only iterate nodes now for counting and constructor analysis
@@ -188,10 +185,10 @@ function analyzeSnapshot(snapshotJsonString) {
             }
         };
 
-        logCategory("Three.js Constructors", threejsConstructorCounts);
-        logCategory("Game Specific Constructors", gameConstructorCounts);
+        // DEBUG - Enable these to see the constructor counts in the console
+        // logCategory("Three.js Constructors", threejsConstructorCounts);
+        // logCategory("Game Specific Constructors", gameConstructorCounts);
         // logCategory("Misc/Unknown Constructors", miscConstructorCounts); // Log if/when used
-        console.log(`--- End Constructor Analysis ---`);
 
     } catch (e) {
         console.error('Error during snapshot analysis:', e.message, e.stack);
@@ -202,7 +199,7 @@ function analyzeSnapshot(snapshotJsonString) {
         miscConstructorCounts = {};
     }
 
-    console.log(`Analysis Complete (Node Counts) - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
+    // console.log(`Analysis Complete (Node Counts) - Geo: ${counts.geometryCount}, Mat: ${counts.materialCount}, Tex: ${counts.textureCount}, RT: ${counts.renderTargetCount}, Mesh: ${counts.meshCount}, Grp: ${counts.groupCount}`);
     return { nodeCounts: counts, constructorCounts: { threejs: threejsConstructorCounts, game: gameConstructorCounts, misc: miscConstructorCounts } };
 }
 

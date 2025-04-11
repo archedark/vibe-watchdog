@@ -49,7 +49,6 @@ function setupWebSocketServer(httpServer, config, reportManager) {
         clients.add(ws);
 
         ws.on('message', async (message) => {
-            // console.log('[WSS] Received message'); // Reduce noise
             let data;
             try {
                 // Ensure message is a string before parsing (WebSocket messages can be Buffers)
@@ -57,17 +56,12 @@ function setupWebSocketServer(httpServer, config, reportManager) {
                 data = JSON.parse(messageString);
 
                 if (data?.type === 'sceneCounts' && data.payload) {
-                    // console.log('[WSS] Processing sceneCounts payload...'); // Reduce noise
-                    // console.log('Raw Payload:', JSON.stringify(data.payload, null, 2)); // Debug log raw payload
-
                     // --- Adapt Payload --- 
                     const adaptedData = adaptClientPayload(data.payload);
-                    // console.log('Adapted Data:', JSON.stringify(adaptedData, null, 2)); // Debug log adapted data
 
                     // --- Calculate Delta --- 
                     const previousCounts = latestReportCache?.constructorCounts; // Get counts from cached latest report
                     const delta = calculateConstructorDelta(adaptedData.constructorCounts, previousCounts);
-                    // console.log('Calculated Delta:', JSON.stringify(delta, null, 2)); // Debug log delta
 
                     // --- Prepare Final Report --- 
                     const reportData = {
@@ -84,7 +78,6 @@ function setupWebSocketServer(httpServer, config, reportManager) {
                     // Update the cache *after* saving the new report
                     // Store the CONSTRUCTOR counts, as that's what delta needs
                     latestReportCache = { constructorCounts: adaptedData.constructorCounts };
-                    // console.log('[WSS] Report processed and saved. Cache updated.'); // Reduce noise
 
                 } else {
                     console.warn('[WSS] Received unknown message format or type:', data?.type);
@@ -92,8 +85,6 @@ function setupWebSocketServer(httpServer, config, reportManager) {
 
             } catch (e) {
                 console.error('[WSS] Failed to parse message or process data:', e);
-                // Avoid logging potentially huge messages unless needed
-                // console.error('[WSS] Raw message string on error:', messageString); 
             }
         });
 
@@ -163,10 +154,8 @@ async function startServer(config, reportManager, rootDir) {
          if (reports && reports.length > 0) {
              // getReports already sorts newest first
              latestReportCache = reports[0];
-             console.log('Primed delta calculation cache with latest report.');
          } else {
              latestReportCache = null; // Ensure cache is null if no reports
-             console.log(`No existing reports found in ${reportManager.reportsDir} to prime delta cache.`); // Use property for logging
          }
     } catch (e) {
          console.warn('Could not pre-fetch latest report for delta cache:', e.message);
@@ -219,7 +208,6 @@ async function startServer(config, reportManager, rootDir) {
     // Use Promise to handle async setup and potential errors
     return new Promise((resolve, reject) => {
         httpServer.listen(config.serverPort, () => {
-            // console.log(`HTTP server listening on port ${config.serverPort}`); // Logged in watchdog.js
             
             // Start WebSocket server ONLY if in listen mode
             if (config.isListenMode) {
@@ -298,7 +286,6 @@ async function stopServer(serverObject) {
 
     // Wait for both servers to attempt closing
     await Promise.all([wssClosed, httpClosed]);
-    console.log('Servers attempted shutdown.');
 }
 
 
