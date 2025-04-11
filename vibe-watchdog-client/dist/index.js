@@ -134,7 +134,7 @@ var knownThreejsTypes = /* @__PURE__ */ new Set([
   // Excluding Helpers, Loaders, Math, Curves, Attributes, WebGL internals etc. as they are less likely
   // to be directly traversed in a typical scene graph or indicative of app-level leaks.
 ]);
-var DEFAULT_INTERVAL = 1e3;
+var DEFAULT_INTERVAL = 5e3;
 var DEFAULT_BACKEND_URL = "wss://your-vibe-watchdog-backend.com/ws/agent";
 var VibeWatchdogClient = class {
   constructor() {

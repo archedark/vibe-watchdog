@@ -197,8 +197,8 @@ async function startServer(config, reportManager, rootDir) {
         // Viewer uses snapshotInterval to determine its polling frequency
         let effectiveInterval = config?.interval || 10000; // Default to legacy
         if (config?.isListenMode) {
-            // Poll faster if we are in listen mode (client sends data faster)
-            effectiveInterval = 2000; // e.g., 2 seconds
+            // Poll interval for the viewer in listen mode
+            effectiveInterval = 5000; // Match the new client default (5 seconds)
         }
         
         res.json({

@@ -62,7 +62,7 @@ interface SceneCounts {
   };
 }
 
-const DEFAULT_INTERVAL = 1000; // Default traversal interval: 1 second (was 10000)
+const DEFAULT_INTERVAL = 5000; // Default traversal interval: 5 seconds (was 1000)
 const DEFAULT_BACKEND_URL = 'wss://your-vibe-watchdog-backend.com/ws/agent'; // Placeholder
 
 class VibeWatchdogClient {
