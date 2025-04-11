@@ -7,12 +7,18 @@ const { takeSnapshot } = require('./src/snapshotter.js');
 const browserManager = require('./src/browser-manager.js'); // Require browser manager
 const path = require('path');
 
+// Placeholder requires for agent mode modules (DEPRECATED)
+// const AgentConnection = require('./src/agent-connection.js');
+// const InspectorClient = require('./src/inspector-client.js');
+
 // --- Watchdog Class Definition ---
 class Watchdog {
     constructor() {
         console.log("Initializing Watchdog...");
         this.config = getConfig();
-        this.reportManager = new ReportManager(__dirname);
+        // Conditionally set the reports subdirectory
+        const reportSubDir = this.config.isListenMode ? 'reports-client' : 'reports';
+        this.reportManager = new ReportManager(__dirname, reportSubDir);
         
         // State variables initialized to null/defaults
         this.server = null;
@@ -30,67 +36,92 @@ class Watchdog {
         this.meshIncreaseStreak = 0;
         this.groupIncreaseStreak = 0;
         
-        console.log("Watchdog Initialized with config:", this.config);
+        console.log(`Watchdog Initialized. Running in ${this.config.isListenMode ? 'Listen' : 'Legacy'} mode.`);
+        console.log("Config:", this.config);
     }
 
     // --- Main startup logic ---
     async start() {
-        console.log(`Starting Watchdog for URL: ${this.config.targetUrl}`);
-        console.log(`Headless mode: ${this.config.isHeadless}`);
-        console.log(`Snapshot interval: ${this.config.interval}ms`);
-        console.log(`Leak threshold: ${this.config.threshold} increases`);
-        console.log(`Maximum reports to keep: ${this.config.maxReports}`);
-        console.log(`Report viewer server starting on port: ${this.config.serverPort}`);
-        console.warn('Watchdog started. Using simplified analysis for MVP - results may be inaccurate.');
+        console.log('Starting Watchdog...');
+        await this.reportManager.initializeDirectory();
 
+        if (this.config.clearReports) {
+            console.log('--clear-reports flag detected.');
+            await this.reportManager.clearReports();
+        }
+
+        // Start the HTTP server and potentially the WebSocket server
+        // The serverManager will internally check the mode from config
         try {
-            await this.reportManager.initializeDirectory();
+            this.server = await serverManager.startServer(this.config, this.reportManager, __dirname);
+            // Note: startServer now needs to be async if WebSocket server setup inside is async
+            console.log(`HTTP Report Server running on port ${this.config.serverPort}`);
+            if (this.config.isListenMode) {
+                 console.log(`WebSocket Server listening on port ${this.config.listenWssPort}`);
+            }
+        } catch (serverError) {
+             console.error('Failed to start server(s):', serverError);
+             await this.stop(); // Attempt cleanup
+             process.exit(1);
+        }
 
-            if (this.config.clearReports) {
-                console.log('--clear-reports flag detected.');
-                await this.reportManager.clearReports();
+        if (!this.config.isListenMode) {
+            // --- Legacy Mode Specific Startup ---
+            console.log(`Legacy Mode: Monitoring URL: ${this.config.targetUrl}`);
+            console.log(`Headless mode: ${this.config.isHeadless}`);
+            console.log(`Snapshot interval: ${this.config.interval}ms`);
+            console.log(`Leak threshold: ${this.config.threshold} increases`);
+
+            try {
+                // Puppeteer setup
+                const { browser, gamePage, cdpSession } = await browserManager.initializeBrowser(this.config);
+                this.browser = browser;
+                this.gamePage = gamePage;
+                this.cdpSession = cdpSession;
+
+                console.log('\n--- Initial Snapshot ---');
+                const initialSnapshotData = await takeSnapshot(this.cdpSession);
+                this.previousAnalysisResult = analyzeSnapshot(initialSnapshotData);
+
+                const initialReportData = {
+                    nodeCounts: this.previousAnalysisResult.nodeCounts,
+                    constructorCounts: this.previousAnalysisResult.constructorCounts,
+                    constructorCountsDelta: calculateConstructorDelta(this.previousAnalysisResult.constructorCounts, null)
+                };
+                await this.reportManager.saveReport(initialReportData, this.config.maxReports);
+                console.log('--- Initial Snapshot End ---');
+
+                console.log(`\nSetting legacy snapshot interval to ${this.config.interval}ms`);
+                // Start the interval timer only in Legacy mode
+                this.intervalId = setInterval(this.runLegacyInterval.bind(this), this.config.interval);
+
+            } catch (error) {
+                console.error('Legacy Watchdog startup failed (after server start):', error.message);
+                await this.stop(); // Attempt graceful shutdown
+                process.exit(1);
             }
 
-            this.server = serverManager.startServer(this.config, this.reportManager, __dirname);
-
-            const { browser, gamePage, cdpSession } = await browserManager.initializeBrowser(this.config);
-            this.browser = browser;
-            this.gamePage = gamePage;
-            this.cdpSession = cdpSession;
-            
-            console.log('\n--- Initial Snapshot ---');
-            const initialSnapshotData = await takeSnapshot(this.cdpSession);
-            this.previousAnalysisResult = analyzeSnapshot(initialSnapshotData);
-            
-            const initialReportData = {
-                nodeCounts: this.previousAnalysisResult.nodeCounts,
-                constructorCounts: this.previousAnalysisResult.constructorCounts,
-                constructorCountsDelta: calculateConstructorDelta(this.previousAnalysisResult.constructorCounts, null)
-            };
-            await this.reportManager.saveReport(initialReportData, this.config.maxReports);
-            console.log('--- Initial Snapshot End ---');
-
-            console.log(`\nSetting snapshot interval to ${this.config.interval}ms`);
-            this.intervalId = setInterval(this.runInterval.bind(this), this.config.interval);
-
-            console.log("Watchdog running. Press Ctrl+C to stop.");
-
-        } catch (error) {
-            console.error('Watchdog failed to start:', error.message);
-            await this.stop(); // Attempt graceful shutdown on startup error
-            process.exit(1);
+        } else {
+            // --- Listen Mode Specific Startup ---
+            console.log(`Listen Mode: Waiting for client connections on ws://localhost:${this.config.listenWssPort}`);
+            // No interval timer needed here; actions are triggered by client messages
         }
+
+        console.log("Watchdog running. Press Ctrl+C to stop.");
     }
 
-    // --- Interval callback logic ---
-    async runInterval() {
-        console.log('\n--- Interval Start ---');
+    // --- Interval callback logic (LEGACY MODE ONLY) ---
+    async runLegacyInterval() {
+        // Renamed from runInterval to be specific
+        if (this.config.isListenMode) return; // Should not be called in listen mode
+
+        console.log('\n--- Legacy Interval Start ---');
         let snapshotDataString = null;
         try {
             snapshotDataString = await takeSnapshot(this.cdpSession);
         } catch (snapshotError) {
             console.error(`Error taking snapshot: ${snapshotError.message}`);
-            console.log('--- Interval End (skipped analysis due to snapshot error) ---');
+            console.log('--- Legacy Interval End (skipped analysis due to snapshot error) ---');
             return; // Skip rest of interval
         }
 
@@ -98,7 +129,7 @@ class Watchdog {
         let reportData = null;
 
         if (snapshotDataString) {
-            console.log(`Received snapshot data: ${Math.round(snapshotDataString.length / 1024)} KB`);
+            // console.log(`Received snapshot data: ${Math.round(snapshotDataString.length / 1024)} KB`);
             currentAnalysisResult = analyzeSnapshot(snapshotDataString);
 
             const delta = calculateConstructorDelta(
@@ -196,33 +227,34 @@ class Watchdog {
         }
         // Update previousAnalysisResult for the next interval
         this.previousAnalysisResult = currentAnalysisResult || this.previousAnalysisResult;
-        console.log('--- Interval End ---');
+        console.log('--- Legacy Interval End ---');
     }
 
     // --- Implement Stop method --- 
     async stop() {
         console.log('Watchdog stopping gracefully...');
         
-        // 1. Clear Interval
+        // 1. Clear Legacy Interval (Common for legacy mode)
         if (this.intervalId) {
-            console.log('- Clearing snapshot interval...');
+            console.log('- Clearing legacy interval...');
             clearInterval(this.intervalId);
             this.intervalId = null;
         }
 
-        // 2. Stop Server (wait for it to close)
+        // 2. Stop Server (HTTP + potentially WebSocket)
+        // serverManager.stopServer should handle closing both if needed
         if (this.server) {
-            console.log('- Stopping report server...');
+            console.log('- Stopping server(s)...');
             try {
                 await serverManager.stopServer(this.server);
                 this.server = null;
             } catch (err) {
-                console.error('  Error stopping server:', err.message);
+                console.error('  Error stopping server(s):', err.message);
             }
         }
 
-        // 3. Close Browser (wait for it to close)
-        if (this.browser) {
+        // 3. Close Browser (Legacy Mode Only)
+        if (!this.config.isListenMode && this.browser) {
             console.log('- Closing browser...');
             try {
                 await browserManager.closeBrowser(this.browser);
@@ -231,39 +263,35 @@ class Watchdog {
                 console.error('  Error closing browser:', err.message);
             }
         }
-
+        
         console.log('Watchdog stopped.');
     }
 }
 
-// --- Main Execution Logic (Adjusted for SIGINT access) ---
-let watchdogInstance = null; // Declare outside
+// --- Main Execution Logic ---
+let watchdogInstance = null;
 
 async function run() {
-    watchdogInstance = new Watchdog(); // Assign instance
     try {
+        watchdogInstance = new Watchdog(); // Assign instance
         await watchdogInstance.start();
     } catch (error) {
-        // Errors during start should be handled within start() or caught here
         console.error("Critical error during watchdog startup:", error);
-        // Ensure stop is called even if start partially fails and throws
         if (watchdogInstance) {
-            await watchdogInstance.stop(); 
-        }        
+            await watchdogInstance.stop();
+        }
         process.exit(1);
     }
 }
 
-run(); // Start the application
-
-// --- Updated SIGINT Handler ---
+// Graceful shutdown handling
 process.on('SIGINT', async () => {
-    console.log('\nReceived SIGINT. Shutting down watchdog...');
+    console.log('\nSIGINT received. Stopping Watchdog...');
     if (watchdogInstance) {
         await watchdogInstance.stop();
-    } else {
-        console.warn('Watchdog instance not available for cleanup.');
     }
     process.exit(0);
 });
+
+run(); // Start the watchdog
 

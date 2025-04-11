@@ -3,6 +3,7 @@ node_modules/
 
 # Reports
 reports/
+reports-client/
 
 # Project files
 *.psd
