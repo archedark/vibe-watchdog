@@ -13,3 +13,9 @@ performance monitoring plan
 ideas
 marketing
 refactor plan
+
+# Client build output
+vibe-watchdog-client/dist/
+
+# Client node modules
+vibe-watchdog-client/node_modules/
